@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.34
+duckdb>=1.2
+pydantic>=2.0
+pydantic-settings>=2.0
+pandas>=2.2
+pyarrow>=18.0
+openpyxl>=3.1
+scipy>=1.14
+numpy>=1.26

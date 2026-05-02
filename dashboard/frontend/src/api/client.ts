@@ -1,0 +1,124 @@
+import { QueryClient } from '@tanstack/react-query'
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      refetchOnWindowFocus: true,
+      retry: 1,
+    },
+  },
+})
+
+const BASE = '/api'
+
+async function fetchJson<T>(
+  path: string,
+  params?: Record<string, string | number | boolean>,
+): Promise<T> {
+  const url = new URL(path, window.location.origin)
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
+    })
+  }
+  const res = await fetch(url.toString())
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}))
+    throw new Error((detail as { detail?: string }).detail || `API error ${res.status}`)
+  }
+  return res.json() as Promise<T>
+}
+
+export const api = {
+  health: () => fetchJson<import('../types/api').HealthResponse>(`${BASE}/health`),
+
+  commodities: (start: string, end: string, includeMarginal = false, maxPoints = 5000) =>
+    fetchJson<import('../types/api').CommoditiesResponse>(`${BASE}/commodities`, {
+      start,
+      end,
+      include_marginal: includeMarginal,
+      max_points: maxPoints,
+    }),
+
+  commodityKpi: () =>
+    fetchJson<import('../types/api').CommodityKpiResponse>(`${BASE}/commodities/kpi`),
+
+  electricityHistorical: (start: string, end: string, maxPoints = 5000) =>
+    fetchJson<import('../types/api').ElectricityHistoricalResponse>(
+      `${BASE}/electricity/historical`,
+      { start, end, max_points: maxPoints },
+    ),
+
+  durationCurve: (year: number) =>
+    fetchJson<import('../types/api').DurationCurveResponse>(
+      `${BASE}/electricity/duration-curve`,
+      { year },
+    ),
+
+  heatmap: (year: number) =>
+    fetchJson<import('../types/api').HeatmapResponse>(`${BASE}/electricity/heatmap`, { year }),
+
+  mlMetrics: () => fetchJson<import('../types/api').MetricsResponse>(`${BASE}/ml/metrics`),
+
+  mlPredictions: (set: string, maxPoints = 5000) =>
+    fetchJson<import('../types/api').PredictionsResponse>(`${BASE}/ml/predictions`, {
+      set,
+      max_points: maxPoints,
+    }),
+
+  correlationMatrix: () =>
+    fetchJson<import('../types/api').CorrelationMatrixResponse>(`${BASE}/ml/correlation-matrix`),
+
+  priceDistributions: (source: string, scenario?: string) =>
+    fetchJson<import('../types/api').PriceDistributionsResponse>(
+      `${BASE}/ml/price-distributions`,
+      { source, scenario: scenario || '' },
+    ),
+
+  scenariosList: () =>
+    fetchJson<import('../types/api').ScenariosListResponse>(`${BASE}/scenarios/list`),
+
+  scenario: (scenario: string) =>
+    fetchJson<import('../types/api').ScenarioDataResponse>(`${BASE}/scenarios`, { scenario }),
+
+  forecastDa: (start: string, end: string, scenario: string, maxPoints = 10000) =>
+    fetchJson<import('../types/api').DAForecastResponse>(`${BASE}/forecast/da`, {
+      start,
+      end,
+      scenario,
+      max_points: maxPoints,
+    }),
+
+  forecastId3: (start: string, end: string, scenario: string, maxPoints = 10000) =>
+    fetchJson<import('../types/api').ID3ImbalanceResponse>(`${BASE}/forecast/id3-imbalance`, {
+      start,
+      end,
+      scenario,
+      max_points: maxPoints,
+    }),
+
+  annualStats: (scenario: string) =>
+    fetchJson<import('../types/api').AnnualStatsResponse>(`${BASE}/forecast/annual-stats`, {
+      scenario,
+    }),
+
+  ancillaryCapacity: (start: string, end: string, scenario: string, maxPoints = 5000) =>
+    fetchJson<import('../types/api').AncillaryCapacityResponse>(`${BASE}/ancillary/capacity`, {
+      start,
+      end,
+      scenario,
+      max_points: maxPoints,
+    }),
+
+  ancillaryRevenue: (scenario: string) =>
+    fetchJson<import('../types/api').AncillaryRevenueResponse>(`${BASE}/ancillary/revenue`, {
+      scenario,
+    }),
+
+  regulationStates: (year: number, scenario: string) =>
+    fetchJson<import('../types/api').RegulationStatesResponse>(
+      `${BASE}/ancillary/regulation-states`,
+      { year, scenario },
+    ),
+}
