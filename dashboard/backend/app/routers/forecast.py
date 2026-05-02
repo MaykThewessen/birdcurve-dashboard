@@ -2,26 +2,23 @@
 from __future__ import annotations
 
 import csv
+from datetime import datetime, timezone
 
 import openpyxl
-from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi import APIRouter, Query, Request, HTTPException, Response
+from fastapi.concurrency import run_in_threadpool
 
 from ..downsampling import lttb_downsample
-from ._helpers import get_engine_and_dir
+from ._helpers import get_engine_and_dir, add_cache_headers
 
 router = APIRouter(prefix="/forecast", tags=["forecast"])
 
 
-@router.get("/da")
-async def get_da_forecast(
-    request: Request,
-    start: str = Query(...),
-    end: str = Query(...),
-    scenario: str = Query(...),
-    max_points: int = Query(10000, ge=10, le=100000),
-):
-    engine, fdir = get_engine_and_dir(request, scenario)
+def _today_iso() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
 
+
+def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int):
     csv_path = list(fdir.glob("predictions_DA_hourly_*.csv"))
     if not csv_path:
         raise HTTPException(404, "predictions_DA_hourly CSV not found")
@@ -59,16 +56,22 @@ async def get_da_forecast(
     }
 
 
-@router.get("/id3-imbalance")
-async def get_id3_imbalance(
+@router.get("/da")
+async def get_da_forecast(
     request: Request,
+    response: Response,
     start: str = Query(...),
     end: str = Query(...),
     scenario: str = Query(...),
     max_points: int = Query(10000, ge=10, le=100000),
 ):
-    engine, fdir = get_engine_and_dir(request, scenario)
+    _engine, fdir = get_engine_and_dir(request, scenario)
+    payload = await run_in_threadpool(_get_da_forecast_sync, fdir, start, end, max_points)
+    add_cache_headers(response, end, _today_iso())
+    return payload
 
+
+def _get_id3_imbalance_sync(engine, scenario: str, start: str, end: str, max_points: int):
     data = engine.query_forecast_file(
         scenario,
         "predictions_DA_ID3_Imb_aFRR_FCR_quarterly_2023_2050",
@@ -120,13 +123,24 @@ async def get_id3_imbalance(
     }
 
 
-@router.get("/annual-stats")
-async def get_annual_stats(
+@router.get("/id3-imbalance")
+async def get_id3_imbalance(
     request: Request,
+    response: Response,
+    start: str = Query(...),
+    end: str = Query(...),
     scenario: str = Query(...),
+    max_points: int = Query(10000, ge=10, le=100000),
 ):
-    engine, fdir = get_engine_and_dir(request, scenario)
+    engine, _fdir = get_engine_and_dir(request, scenario)
+    payload = await run_in_threadpool(
+        _get_id3_imbalance_sync, engine, scenario, start, end, max_points
+    )
+    add_cache_headers(response, end, _today_iso())
+    return payload
 
+
+def _get_annual_stats_sync(fdir):
     xlsx_files = list(fdir.glob("Annual_statistics_*.xlsx"))
     if not xlsx_files:
         raise HTTPException(404, "Annual_statistics xlsx not found")
@@ -168,3 +182,16 @@ async def get_annual_stats(
         "wind_rev": metric_map.get("Wind Revenue (k€/MW/y)", []),
         "demand_twh": metric_map.get("Annual Demand (TWh/y)", []),
     }
+
+
+@router.get("/annual-stats")
+async def get_annual_stats(
+    request: Request,
+    response: Response,
+    scenario: str = Query(...),
+):
+    _engine, fdir = get_engine_and_dir(request, scenario)
+    payload = await run_in_threadpool(_get_annual_stats_sync, fdir)
+    # Annual stats span all years incl. future projections → recent.
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return payload

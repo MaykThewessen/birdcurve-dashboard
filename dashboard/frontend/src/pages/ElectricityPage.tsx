@@ -124,7 +124,7 @@ export default function ElectricityPage() {
     }
 
     // Overlay series (area)
-    const supplyMap: Record<OverlayKey, (s: typeof chartData.supply[0]) => number | undefined> = {
+    const supplyMap: Record<OverlayKey, (s: NonNullable<typeof chartData>['supply'][number]) => number | undefined> = {
       load: (s) => s.load,
       pv: (s) => s.pv,
       wind_onshore: (s) => s.wind_onshore,
@@ -253,8 +253,8 @@ export default function ElectricityPage() {
     const { hours, months, values } = heatmapData
     // values[hour_idx][month_idx]
     const data: [number, number, number][] = []
-    hours.forEach((h, hi) => {
-      months.forEach((m, mi) => {
+    hours.forEach((_h, hi) => {
+      months.forEach((_m, mi) => {
         const v = values[hi]?.[mi]
         if (v != null) data.push([mi, hi, Math.round(v * 10) / 10])
       })

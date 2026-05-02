@@ -1,24 +1,22 @@
 """Ancillary services: aFRR/FCR capacity prices, volumes, revenue."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request, HTTPException
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 
 from ..downsampling import lttb_downsample
-from ._helpers import get_engine_and_dir
+from ._helpers import get_engine_and_dir, add_cache_headers
 
 router = APIRouter(prefix="/ancillary", tags=["ancillary"])
 
 
-@router.get("/capacity")
-async def get_capacity(
-    request: Request,
-    start: str = Query(...),
-    end: str = Query(...),
-    scenario: str = Query(...),
-    max_points: int = Query(5000, ge=10, le=50000),
-):
-    engine, fdir = get_engine_and_dir(request, scenario)
+def _today_iso() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
 
+
+def _get_capacity_sync(engine, scenario: str, start: str, end: str, max_points: int):
     data = engine.query_forecast_file(
         scenario,
         "predictions_aFRR_FCR_capacity_4h_2023_2050",
@@ -70,13 +68,33 @@ async def get_capacity(
     }
 
 
+@router.get("/capacity")
+async def get_capacity(
+    request: Request,
+    response: Response,
+    start: str = Query(...),
+    end: str = Query(...),
+    scenario: str = Query(...),
+    max_points: int = Query(5000, ge=10, le=50000),
+):
+    engine, _fdir = get_engine_and_dir(request, scenario)
+    payload = await run_in_threadpool(
+        _get_capacity_sync, engine, scenario, start, end, max_points
+    )
+    add_cache_headers(response, end, _today_iso())
+    return payload
+
+
 @router.get("/revenue")
 async def get_revenue(
     request: Request,
     scenario: str = Query(...),
 ):
-    from .forecast import get_annual_stats
-    stats = await get_annual_stats(request, scenario=scenario)
+    # Reuse the annual-stats sync loader directly — avoids the async-handler
+    # signature coupling and keeps the file read on the threadpool.
+    from .forecast import _get_annual_stats_sync
+    _engine, fdir = get_engine_and_dir(request, scenario)
+    stats = await run_in_threadpool(_get_annual_stats_sync, fdir)
 
     return {
         "years": stats.get("years", []),
@@ -86,14 +104,7 @@ async def get_revenue(
     }
 
 
-@router.get("/regulation-states")
-async def get_regulation_states(
-    request: Request,
-    year: int = Query(...),
-    scenario: str = Query(...),
-):
-    engine, fdir = get_engine_and_dir(request, scenario)
-
+def _get_regulation_states_sync(engine, scenario: str, year: int):
     start = f"{year}-01-01"
     end = f"{year + 1}-01-01"
 
@@ -125,3 +136,13 @@ async def get_regulation_states(
         })
 
     return {"states": states, "year": year, "total_intervals": total}
+
+
+@router.get("/regulation-states")
+async def get_regulation_states(
+    request: Request,
+    year: int = Query(...),
+    scenario: str = Query(...),
+):
+    engine, _fdir = get_engine_and_dir(request, scenario)
+    return await run_in_threadpool(_get_regulation_states_sync, engine, scenario, year)

@@ -78,7 +78,7 @@ export default function ScenariosPage() {
     tooltip: {
       trigger: 'axis',
       formatter: (params: unknown) => {
-        const items = params as { seriesName: string; value: number; color: string }[]
+        const items = params as { seriesName: string; value: number; color: string; dataIndex?: number }[]
         const year = data?.years?.[items[0]?.dataIndex ?? 0] ?? ''
         const lines = items.map(
           (p) => `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${Number(p.value).toFixed(1)} GW</b>`,

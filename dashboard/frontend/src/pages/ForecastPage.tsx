@@ -141,7 +141,7 @@ export default function ForecastPage() {
         name: 'Avg DA Price',
         type: 'bar',
         barMaxWidth: 14,
-        data: statsData?.avg_da?.map((v, i) => ({
+        data: statsData?.avg_da?.map((v) => ({
           value: v,
           // error bars via markLine not natively supported in bar, show as itemStyle
           itemStyle: { color: '#D4A574' },

@@ -110,7 +110,7 @@ export default function MLPage() {
         ...(['A', 'B', 'C', 'D'] as const).map((band, i) => ({
           name: [`Band A (<20)`, `Band B (20-90)`, `Band C (90-180)`, `Band D (>180)`][i],
           type: 'scatter' as const,
-          data: [] as unknown[],
+          data: [],
           itemStyle: { color: BAND_COLORS[band] },
           symbol: 'circle',
           symbolSize: 8,
@@ -123,7 +123,7 @@ export default function MLPage() {
           lineStyle: { color: '#8896B3', type: 'dashed', width: 1.5 },
           itemStyle: { color: '#8896B3' },
         },
-      ],
+      ] as never,
     }
   }, [predictions])
 

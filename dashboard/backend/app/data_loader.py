@@ -13,16 +13,20 @@ from .config import Settings
 
 
 class DataEngine:
-    """Unified query engine. Attaches SQLite on init, discovers model/forecast dirs."""
+    """Unified query engine. Attaches the on-disk DuckDB read-only and discovers model/forecast dirs."""
 
     def __init__(self, settings: Settings):
         self._settings = settings
+        # Connect to a transient DB; ATTACH the on-disk DuckDB read-only.
+        # Why ATTACH not direct connect: lets us register temp tables for
+        # forecast .feather files alongside on-disk data without touching it.
         self._conn = duckdb.connect()
-
-        # Attach SQLite as 'sqlite_db'
-        db_path = str(settings.sqlite_db)
-        self._conn.execute("INSTALL sqlite; LOAD sqlite;")
-        self._conn.execute(f"ATTACH '{db_path}' AS sqlite_db (TYPE sqlite, READ_ONLY);")
+        self._conn.execute(
+            f"ATTACH '{settings.duckdb_path}' AS db (READ_ONLY)"
+        )
+        self._conn.execute("USE db")
+        # Pin tz to UTC per project convention
+        self._conn.execute("SET TimeZone='UTC'")
 
         # Discover model results
         self._model_dir = settings.model_results_dir
@@ -110,74 +114,26 @@ class DataEngine:
         result = self._conn.execute(sql, params or []).fetchdf()
         return result.to_dict(orient="records")
 
-    def query_commodity(
-        self,
-        source: str,
-        column_names: list[str],
-        start: str,
-        end: str,
-    ) -> list[dict]:
-        placeholders = ", ".join(["?" for _ in column_names])
-        sql = f"""
-            SELECT timestamp_utc, column_name, value
-            FROM sqlite_db.ts_daily
-            WHERE source = ?
-              AND column_name IN ({placeholders})
-              AND timestamp_utc >= ?
-              AND timestamp_utc <= ?
-            ORDER BY timestamp_utc
-        """
-        params = [source] + column_names + [start, end]
-        rows = self._conn.execute(sql, params).fetchall()
-
-        if not rows:
-            return []
-
-        pivoted: dict[str, dict] = {}
-        for ts, col, val in rows:
-            date_key = ts[:10]
-            if date_key not in pivoted:
-                pivoted[date_key] = {"date": date_key}
-            pivoted[date_key][col] = val
-
-        return list(pivoted.values())
-
-    def query_electricity(
+    def query_wide(
         self,
         table: str,
-        sources_columns: dict[str, list[str]],
-        start: str,
-        end: str,
+        columns: list[str],
+        start: str | None = None,
+        end: str | None = None,
+        timestamp_col: str = "timestamp_utc",
     ) -> list[dict]:
-        conditions = []
-        params: list = []
-        for source, cols in sources_columns.items():
-            col_placeholders = ", ".join(["?" for _ in cols])
-            conditions.append(f"(source = ? AND column_name IN ({col_placeholders}))")
-            params.extend([source] + cols)
-
-        where_clause = " OR ".join(conditions)
-        sql = f"""
-            SELECT timestamp_utc, source, column_name, value
-            FROM sqlite_db.{table}
-            WHERE ({where_clause})
-              AND timestamp_utc >= ?
-              AND timestamp_utc <= ?
-            ORDER BY timestamp_utc
-        """
-        params.extend([start, end])
-        rows = self._conn.execute(sql, params).fetchall()
-
-        if not rows:
-            return []
-
-        pivoted: dict[str, dict] = {}
-        for ts, source, col, val in rows:
-            if ts not in pivoted:
-                pivoted[ts] = {"timestamp": ts}
-            pivoted[ts][col] = val
-
-        return list(pivoted.values())
+        """Select named wide-schema columns + timestamp, optionally filtered by range."""
+        quoted = ", ".join(f'"{c}"' for c in columns)
+        where, params = [], []
+        if start is not None:
+            where.append(f'"{timestamp_col}" >= ?')
+            params.append(start)
+        if end is not None:
+            where.append(f'"{timestamp_col}" <= ?')
+            params.append(end)
+        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+        sql = f'SELECT "{timestamp_col}", {quoted} FROM {table} {where_sql} ORDER BY "{timestamp_col}"'
+        return self._conn.execute(sql, params).fetchdf().to_dict(orient="records")
 
     def query_forecast_file(
         self,

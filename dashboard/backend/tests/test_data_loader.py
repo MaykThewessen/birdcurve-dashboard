@@ -1,23 +1,27 @@
 import pytest
 from app.data_loader import DataEngine
 
+
 class TestDataEngine:
-    def test_engine_connects_to_sqlite(self, settings):
+    def test_engine_connects_to_duckdb(self, settings):
         engine = DataEngine(settings)
-        result = engine.query("SELECT COUNT(*) as n FROM sqlite_db.ts_daily")
-        assert result[0]["n"] > 10000
+        result = engine.query("SELECT COUNT(*) AS n FROM ts_daily")
+        assert result[0]["n"] > 1000
         engine.close()
 
-    def test_query_commodity_by_date_range(self, settings):
+    def test_query_wide_returns_columns(self, settings):
         engine = DataEngine(settings)
-        rows = engine.query_commodity(
-            source="Gas_TTF",
-            column_names=["price_EUR_MWh_HHV", "Gas_Mar"],
-            start="2024-01-01",
-            end="2024-12-31"
+        rows = engine.query_wide(
+            "ts_daily",
+            ["Gas_TTF__price", "CO2_EUA__price"],
+            "2024-01-01",
+            "2024-01-31",
         )
-        assert len(rows) > 200
-        assert all(k in rows[0] for k in ["date", "price_EUR_MWh_HHV", "Gas_Mar"])
+        assert len(rows) > 10
+        sample = rows[0]
+        assert "timestamp_utc" in sample
+        assert "Gas_TTF__price" in sample
+        assert "CO2_EUA__price" in sample
         engine.close()
 
     def test_discover_latest_production_model(self, settings):
@@ -33,15 +37,4 @@ class TestDataEngine:
         scenarios = engine.available_scenarios
         assert len(scenarios) >= 1
         assert any("Central" in s for s in scenarios)
-        engine.close()
-
-    def test_query_returns_empty_for_invalid_source(self, settings):
-        engine = DataEngine(settings)
-        rows = engine.query_commodity(
-            source="NonExistent",
-            column_names=["price"],
-            start="2024-01-01",
-            end="2024-12-31"
-        )
-        assert rows == []
         engine.close()

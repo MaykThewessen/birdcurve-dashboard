@@ -14,7 +14,7 @@ async def health_check(request: Request) -> HealthResponse:
 
     table_counts = {}
     for table in ["ts_15min", "ts_hourly", "ts_daily"]:
-        rows = engine.query(f"SELECT COUNT(*) as n FROM sqlite_db.{table}")
+        rows = engine.query(f"SELECT COUNT(*) as n FROM {table}")
         table_counts[table] = rows[0]["n"] if rows else 0
 
     prod = engine.latest_production_model
@@ -28,5 +28,5 @@ async def health_check(request: Request) -> HealthResponse:
         last_model=prod.name if prod else None,
         last_forecast=forecast.name if forecast else None,
         scenarios=scenarios,
-        sqlite_tables=table_counts,
+        db_tables=table_counts,
     )

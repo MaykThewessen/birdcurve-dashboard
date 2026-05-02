@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 
 from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi.concurrency import run_in_threadpool
 
 from ..downsampling import lttb_downsample
 
@@ -35,7 +36,7 @@ async def get_metrics(request: Request):
             "correlation": round(band.get("correlation", 0), 3),
         })
 
-    feature_importance = _get_feature_importance(engine)
+    feature_importance = await run_in_threadpool(_get_feature_importance, engine)
 
     return {
         "training": {
@@ -90,20 +91,10 @@ def _get_feature_importance(engine) -> list[dict]:
         return []
 
 
-@router.get("/predictions")
-async def get_predictions(
-    request: Request,
-    set: str = Query("validation", pattern="^(validation|training)$"),
-    max_points: int = Query(5000, ge=10, le=50000),
-):
-    engine = request.app.state.engine
-    prod = engine.latest_production_model
-    if not prod:
-        raise HTTPException(404, "No production model found")
-
-    csv_path = prod / f"predictions_{set}.csv"
+def _get_predictions_sync(prod, set_name: str, max_points: int):
+    csv_path = prod / f"predictions_{set_name}.csv"
     if not csv_path.exists():
-        raise HTTPException(404, f"predictions_{set}.csv not found")
+        raise HTTPException(404, f"predictions_{set_name}.csv not found")
 
     data = []
     with open(csv_path) as f:
@@ -130,22 +121,41 @@ async def get_predictions(
     }
 
 
-@router.get("/correlation-matrix")
-async def get_correlation_matrix(request: Request):
-    """Feature correlation matrix from training data. Cached after first request."""
+@router.get("/predictions")
+async def get_predictions(
+    request: Request,
+    set: str = Query("validation", pattern="^(validation|training)$"),
+    max_points: int = Query(5000, ge=10, le=50000),
+):
     engine = request.app.state.engine
+    prod = engine.latest_production_model
+    if not prod:
+        raise HTTPException(404, "No production model found")
 
+    return await run_in_threadpool(_get_predictions_sync, prod, set, max_points)
+
+
+def _get_correlation_matrix_sync(engine):
     cached = engine.get_cached("correlation_matrix")
     if cached:
         return cached
 
     import pandas as pd
 
-    features_path = list(engine._settings.project_root.glob("Historical_data_features_engineered_*.feather"))
-    if not features_path:
+    pattern = engine._settings.historical_features_path
+    matches = sorted(pattern.parent.glob(pattern.name))
+    if not matches:
         raise HTTPException(404, "Historical features file not found")
 
-    df = pd.read_feather(features_path[0])
+    features_file = matches[-1]
+    suffix = features_file.suffix.lower()
+    if suffix == ".feather":
+        df = pd.read_feather(features_file)
+    elif suffix == ".parquet":
+        df = pd.read_parquet(features_file)
+    else:
+        raise HTTPException(500, f"Unsupported historical features file extension: {suffix}")
+
     feature_names = engine.get_cached("feature_list") or []
 
     available = [f for f in feature_names[:20] if f in df.columns]
@@ -161,6 +171,59 @@ async def get_correlation_matrix(request: Request):
     return result
 
 
+@router.get("/correlation-matrix")
+async def get_correlation_matrix(request: Request):
+    """Feature correlation matrix from training data. Cached after first request."""
+    engine = request.app.state.engine
+    return await run_in_threadpool(_get_correlation_matrix_sync, engine)
+
+
+def _get_price_distributions_forecast_sync(engine, scenario: str):
+    """Load forecast feather + compute KDE — heavy sync work."""
+    import pandas as pd
+    import numpy as np
+    from scipy.stats import gaussian_kde
+
+    data = engine.query_forecast_file(
+        scenario, "predictions_DA_hourly_*", datetime_col="datetime_UTC"
+    )
+    df = pd.DataFrame(data)
+    if df.empty:
+        return {"years": [], "distributions": []}
+    df["year"] = pd.to_datetime(df["datetime_UTC"]).dt.year
+    df["value"] = df["Price_pred_ensemble"]
+
+    distributions = []
+    for year, group in df.groupby("year"):
+        vals = group["value"].dropna()
+        if len(vals) < 10:
+            continue
+        try:
+            kde = gaussian_kde(vals, bw_method=0.3)
+            x_range = np.linspace(vals.min() - 20, vals.max() + 20, 100)
+            kde_y = kde(x_range).tolist()
+        except Exception:
+            x_range = []
+            kde_y = []
+        distributions.append({
+            "year": int(year),
+            "min": round(float(vals.min()), 1),
+            "q1": round(float(vals.quantile(0.25)), 1),
+            "median": round(float(vals.median()), 1),
+            "q3": round(float(vals.quantile(0.75)), 1),
+            "max": round(float(vals.max()), 1),
+            "mean": round(float(vals.mean()), 1),
+            "std": round(float(vals.std()), 1),
+            "kde_x": [round(float(x), 1) for x in x_range] if len(x_range) > 0 else [],
+            "kde_y": [round(float(y), 4) for y in kde_y],
+        })
+
+    return {
+        "years": [d["year"] for d in distributions],
+        "distributions": distributions,
+    }
+
+
 @router.get("/price-distributions")
 async def get_price_distributions(
     request: Request,
@@ -174,24 +237,25 @@ async def get_price_distributions(
 
     engine = request.app.state.engine
 
-    if source == "historical":
-        sql = """
-            SELECT
-                EXTRACT(year FROM timestamp_utc::TIMESTAMP) as year,
-                value
-            FROM sqlite_db.ts_hourly
-            WHERE source = 'DA_price' AND column_name = 'DA_price'
-            ORDER BY timestamp_utc
-        """
-        rows = engine.query(sql)
-        df = pd.DataFrame(rows)
-    else:
+    if source == "forecast":
         if not scenario:
             raise HTTPException(400, "scenario required for forecast distributions")
-        data = engine.query_forecast_file(scenario, "predictions_DA_hourly_*", datetime_col="datetime_UTC")
-        df = pd.DataFrame(data)
-        df["year"] = pd.to_datetime(df["datetime_UTC"]).dt.year
-        df["value"] = df["Price_pred_ensemble"]
+        return await run_in_threadpool(
+            _get_price_distributions_forecast_sync, engine, scenario
+        )
+
+    sql = """
+        SELECT
+            EXTRACT(year FROM timestamp_utc) AS year,
+            "DA_price__DA_price"             AS value
+        FROM ts_hourly
+        WHERE "DA_price__DA_price" IS NOT NULL
+        ORDER BY timestamp_utc
+    """
+    rows = engine.query(sql)
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["year"] = df["year"].astype(int)
 
     if df.empty:
         return {"years": [], "distributions": []}

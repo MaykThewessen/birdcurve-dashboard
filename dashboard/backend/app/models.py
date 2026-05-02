@@ -9,4 +9,4 @@ class HealthResponse(BaseModel):
     last_model: str | None
     last_forecast: str | None
     scenarios: list[str]
-    sqlite_tables: dict[str, int]
+    db_tables: dict[str, int]

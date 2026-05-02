@@ -200,5 +200,5 @@ export interface HealthResponse {
   last_model: string | null
   last_forecast: string | null
   scenarios: string[]
-  sqlite_tables: Record<string, number>
+  db_tables: Record<string, number>
 }

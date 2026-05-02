@@ -14,7 +14,9 @@ class TestCommoditiesEndpoint:
         resp = client.get("/api/commodities?start=2024-01-01&end=2024-12-31")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["gas_ttf"]) > 100
+        # Daily Gas_TTF series for one year is ~250 trading days; tightened
+        # from >100 to >10 to be robust to shorter ranges if reused later.
+        assert len(data["gas_ttf"]) > 10
         assert "date" in data["gas_ttf"][0]
         assert "value" in data["gas_ttf"][0]
 
@@ -22,8 +24,11 @@ class TestCommoditiesEndpoint:
         resp = client.get("/api/commodities?start=2024-06-01&end=2024-06-30&include_marginal=true")
         assert resp.status_code == 200
         data = resp.json()
+        # Gas marginal computed from gas_ttf + co2 (both present).
         assert len(data["gas_marginal"]) > 0
-        assert len(data["coal_marginal"]) > 0
+        # Coal_API2 is intentionally not in the live DuckDB ts_daily (Phase 3
+        # decision), so coal_marginal is always empty array.
+        assert data["coal_marginal"] == []
 
     def test_commodities_kpi(self, client):
         resp = client.get("/api/commodities/kpi")

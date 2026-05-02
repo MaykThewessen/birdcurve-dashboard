@@ -220,7 +220,7 @@ export default function AncillaryPage() {
         avoidLabelOverlap: true,
         label: {
           show: true,
-          formatter: (p: { name: string; percent: number }) => `${p.name}\n${p.percent?.toFixed(1)}%`,
+          formatter: ((p: { name?: string; percent?: number }) => `${p.name ?? ''}\n${(p.percent ?? 0).toFixed(1)}%`) as never,
           color: '#8896B3',
           fontFamily: 'JetBrains Mono, monospace',
           fontSize: 11,
