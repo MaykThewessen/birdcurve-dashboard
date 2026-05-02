@@ -7,7 +7,7 @@ dev: ## Start both backend and frontend
 	$(MAKE) -j2 backend frontend
 
 backend: ## Start FastAPI backend on :8000
-	cd backend && $(PYTHON) -m uvicorn app.main:app --reload --port 8000
+	cd backend && $(PYTHON) -m granian --interface asgi --host 0.0.0.0 --port 8000 --reload app.main:app
 
 frontend: ## Start Vite frontend on :5173
 	cd frontend && npm run dev

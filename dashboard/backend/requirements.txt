@@ -1,5 +1,5 @@
 fastapi>=0.115
-uvicorn[standard]>=0.34
+granian[reload]>=1.6
 duckdb>=1.2
 pydantic>=2.0
 pydantic-settings>=2.0
