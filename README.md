@@ -2,7 +2,16 @@
 
 Interactive dashboard for Dutch electricity market data and BirdCurve NL price forecasts.
 
-<!-- TODO: pitch — owner to fill -->
+A six-page web app for exploring the Dutch power market and the [BirdCurve NL](https://github.com/MaykThewessen/BirdCurve_NL) price-forecasting model that drives BESS revenue analysis out to 2050. Inspect commodity prices, the supply/demand stack, day-ahead and intra-day forecasts, ML model diagnostics, ancillary-services capacity, and scenario assumptions — all backed by a single read-only DuckDB file.
+
+**Why it exists.** Energy analysts need to see the data, the forecast, and the model's behavior in one place — not a Jupyter notebook, not a static PDF. This dashboard is the interactive companion to the BirdCurve NL pipeline: same data, same model, but explorable from any browser.
+
+**Highlights**
+- Native DuckDB query engine — wide-format columnar reads in milliseconds, no ORM, no Python pivot loops
+- Async FastAPI handlers with threadpool offload for blocking file I/O, and HTTP `Cache-Control` for immutable historical ranges
+- React 19 + TanStack Query + Vite 7 frontend; ECharts for analytics, TradingView lightweight-charts for time series
+- Server-side LTTB downsampling caps every chart payload to a few thousand points without losing extremes
+- 31 integration tests against a live DuckDB; bring-your-own-data design (no proprietary market data committed)
 
 ## What it is
 
