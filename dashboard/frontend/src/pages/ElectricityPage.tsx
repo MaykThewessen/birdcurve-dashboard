@@ -62,9 +62,19 @@ function formatPrice(v: number | null | undefined): string {
   return v.toFixed(2)
 }
 
+// Chronological color ramp: oldest year cool blue → newest year warm copper.
+// Uses HSL so it scales to any year count without a hardcoded palette.
+function yearColor(yearIdx: number, total: number): string {
+  if (total <= 1) return 'hsl(30, 70%, 60%)'
+  const t = yearIdx / (total - 1)
+  const hue = 220 - (220 - 30) * t
+  const sat = 50 + t * 30
+  const light = 58 + t * 6
+  return `hsl(${hue.toFixed(0)}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)`
+}
+
 export default function ElectricityPage() {
   const { dateRange } = useFilterStore()
-  const [durationYear, setDurationYear] = useState(CURRENT_YEAR)
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR)
   const [activeOverlays, setActiveOverlays] = useState<Set<OverlayKey>>(new Set())
 
@@ -77,10 +87,6 @@ export default function ElectricityPage() {
     queryFn: () => api.electricityHistorical(kpiStart, kpiEnd, 5000),
   })
 
-  const { data: durationKpiData } = useQuery({
-    queryKey: ['duration-curve-kpi', CURRENT_YEAR],
-    queryFn: () => api.durationCurve(CURRENT_YEAR),
-  })
 
   // Main chart data
   const { data: chartData, isLoading: chartLoading, error: chartError } = useQuery({
@@ -88,10 +94,15 @@ export default function ElectricityPage() {
     queryFn: () => api.electricityHistorical(dateRange.start, dateRange.end, 8000),
   })
 
-  // Duration curve
-  const { data: durationData, isLoading: durationLoading, error: durationError } = useQuery({
-    queryKey: ['duration-curve', durationYear],
-    queryFn: () => api.durationCurve(durationYear),
+  // Duration curves — one per historical year, plotted on a shared
+  // "% of hours within year" X axis so partial and full years overlay.
+  const {
+    data: durationCurvesData,
+    isLoading: durationLoading,
+    error: durationError,
+  } = useQuery({
+    queryKey: ['duration-curves'],
+    queryFn: () => api.durationCurves(),
   })
 
   // Heatmap
@@ -117,10 +128,10 @@ export default function ElectricityPage() {
       : null
     const maxToday = todayPrices.length ? Math.max(...todayPrices) : null
     const minToday = todayPrices.length ? Math.min(...todayPrices) : null
-    const negHours = durationKpiData?.negative_hours ?? null
+    const negHours = durationCurvesData?.stats?.[String(CURRENT_YEAR)]?.negative_hours ?? null
 
     return { latest, avgMonth, maxToday, minToday, negHours }
-  }, [kpiHistData, durationKpiData])
+  }, [kpiHistData, durationCurvesData])
 
   // Build main chart series
   const chartSeries: TradingViewSeries[] = useMemo(() => {
@@ -179,26 +190,51 @@ export default function ElectricityPage() {
     return series
   }, [chartData, activeOverlays])
 
-  // Duration curve ECharts option
+  // Duration curves — one ECharts line series per year, with a
+  // chronological color ramp so the year drift is readable directly
+  // off the chart (oldest = cool blue, newest = warm copper). The
+  // latest year is drawn on top with extra weight.
   const durationOption: EChartsOption = useMemo(() => {
-    if (!durationData) return {}
-    const prices = durationData.sorted_prices
-    const xData = prices.map((_, i) => i)
-    const negHours = durationData.negative_hours
-    const peakHours = durationData.peak_hours
-    const total = durationData.total_hours
+    if (!durationCurvesData?.years.length) return {}
+    const { years, curves, stats } = durationCurvesData
+    const latestYear = years[years.length - 1]
+
+    const series = years.map((year, i) => {
+      const isLatest = year === latestYear
+      return {
+        name: String(year),
+        type: 'line' as const,
+        data: curves[String(year)],
+        symbol: 'none' as const,
+        smooth: false,
+        lineStyle: {
+          width: isLatest ? 2.5 : 1.5,
+          color: yearColor(i, years.length),
+          opacity: isLatest ? 1 : 0.85,
+        },
+        z: isLatest ? 10 : i,
+      }
+    })
 
     return {
-      grid: { top: 50, right: 20, bottom: 60, left: 70, containLabel: false },
+      grid: { top: 30, right: 16, bottom: 60, left: 70, containLabel: false },
+      legend: {
+        data: years.map(String).reverse(),  // newest first in legend
+        top: 0,
+        right: 16,
+        textStyle: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        itemWidth: 16,
+        itemHeight: 2,
+      },
       xAxis: {
         type: 'value',
-        name: 'Hours',
+        name: '% of hours',
         nameLocation: 'middle',
         nameGap: 30,
         min: 0,
-        max: total,
+        max: 100,
         axisLine: { lineStyle: { color: '#2A3654' } },
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, formatter: '{value}%' },
         splitLine: { lineStyle: { color: '#1A2540' } },
       },
       yAxis: {
@@ -213,60 +249,25 @@ export default function ElectricityPage() {
       tooltip: {
         trigger: 'axis',
         formatter: (params: unknown) => {
-          const p = params as { dataIndex: number; value: number[] }[]
-          if (!p?.length) return ''
-          const idx = p[0].dataIndex
-          return `Hour rank: ${idx + 1}<br/>Price: <b>${prices[idx]?.toFixed(2)} EUR/MWh</b>`
+          const arr = params as { seriesName: string; value: [number, number]; color: string }[]
+          if (!arr?.length) return ''
+          const pct = arr[0].value[0]
+          const lines = [...arr]
+            .sort((a, b) => Number(b.seriesName) - Number(a.seriesName))
+            .map((p) => {
+              const yr = p.seriesName
+              const s = stats[yr]
+              const tail = s ? ` <span style="color:#5B6B85">(neg ${s.negative_hours}h, peak ${s.peak_hours}h)</span>` : ''
+              return `<span style="color:${p.color}">●</span> <b>${yr}</b>: ${p.value[1].toFixed(2)} EUR/MWh${tail}`
+            })
+          return `<div style="font-family:JetBrains Mono,monospace;font-size:12px"><b>${pct.toFixed(1)}%</b> of hours<br/>${lines.join('<br/>')}</div>`
         },
       },
-      visualMap: {
-        show: false,
-        type: 'piecewise',
-        dimension: 1,
-        pieces: [
-          { lt: 0, color: '#F87171' },
-          { gte: 0, lt: 200, color: '#D4A574' },
-          { gte: 200, color: '#FB923C' },
-        ],
-      },
-      series: [
-        {
-          type: 'line',
-          data: xData.map((x) => [x, prices[x]]),
-          symbol: 'none',
-          lineStyle: { width: 2 },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [
-                { offset: 0, color: 'rgba(212,165,116,0.3)' },
-                { offset: 1, color: 'rgba(212,165,116,0.02)' },
-              ],
-            },
-          },
-          markLine: {
-            silent: true,
-            lineStyle: { color: '#F87171', type: 'dashed', width: 1 },
-            data: [{ yAxis: 0, name: 'Zero' }],
-          },
-        },
-      ],
-      graphic: [
-        {
-          type: 'text',
-          left: 10,
-          top: 10,
-          style: {
-            text: `Neg: ${negHours}h  Peak>200: ${peakHours}h`,
-            fill: '#8896B3',
-            fontSize: 11,
-            fontFamily: 'JetBrains Mono, monospace',
-          },
-        },
-      ],
+      series,
+      // Zero line for visual reference of negative-price tail.
+      markLine: undefined,
     }
-  }, [durationData])
+  }, [durationCurvesData])
 
   // Heatmap ECharts option
   const heatmapOption: EChartsOption = useMemo(() => {
@@ -462,15 +463,19 @@ export default function ElectricityPage() {
           error={durationError as Error | null}
           height={320}
           exportData={
-            durationData?.sorted_prices.map((v, i) => ({ rank: i + 1, price_eur_mwh: v })) ?? []
+            durationCurvesData
+              ? durationCurvesData.years.flatMap((y) =>
+                  (durationCurvesData.curves[String(y)] ?? []).map(([pct, price]) => ({
+                    year: y,
+                    pct_of_hours: pct,
+                    price_eur_mwh: price,
+                  })),
+                )
+              : []
           }
-          exportFilename={`duration_curve_${durationYear}`}
+          exportFilename="duration_curves_by_year"
         >
-          <div className="flex items-center justify-between mb-2">
-            <div />
-            <YearSelector value={durationYear} onChange={setDurationYear} />
-          </div>
-          <EChartsWrapper option={durationOption} height={280} />
+          <EChartsWrapper option={durationOption} height={290} />
         </ChartWrapper>
 
         {/* Heatmap */}

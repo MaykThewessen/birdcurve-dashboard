@@ -142,6 +142,71 @@ async def get_duration_curve(
     }
 
 
+@router.get("/duration-curves")
+async def get_duration_curves(
+    request: Request,
+    response: Response,
+    max_points_per_year: int = Query(500, ge=50, le=5000),
+    min_hours: int = Query(720, ge=1, description="Drop years with fewer hours than this (default: ~1 month)"),
+):
+    """All historical years as separate price-duration curves.
+
+    Each year's hourly DA prices are sorted descending and downsampled
+    via LTTB to `max_points_per_year` points. X-axis is normalised to
+    "percent of hours within that year" (0–100), so years with partial
+    data (e.g. the current year) overlay correctly with full years.
+
+    Years with fewer than `min_hours` of data are excluded — these are
+    typically stub rows at the edges of the dataset that would render
+    as single-point degenerate curves.
+    """
+    engine = request.app.state.engine
+
+    sql = """
+        SELECT EXTRACT(YEAR FROM timestamp_utc)::INT AS year,
+               "DA_price__DA_price" AS value
+        FROM ts_hourly
+        WHERE "DA_price__DA_price" IS NOT NULL
+    """
+    rows = engine.query(sql)
+
+    by_year: dict[int, list[float]] = {}
+    for r in rows:
+        by_year.setdefault(r["year"], []).append(r["value"])
+
+    # Drop sparse years (typically stubs at dataset edges).
+    by_year = {y: p for y, p in by_year.items() if len(p) >= min_hours}
+
+    curves: dict[str, list[list[float]]] = {}
+    stats: dict[str, dict] = {}
+    for year, prices in by_year.items():
+        prices.sort(reverse=True)
+        n = len(prices)
+        denom = max(n - 1, 1)
+
+        if n <= max_points_per_year:
+            curves[str(year)] = [
+                [round(i / denom * 100, 3), round(prices[i], 2)] for i in range(n)
+            ]
+        else:
+            data = [{"x": i, "y": v} for i, v in enumerate(prices)]
+            sampled = lttb_downsample(data, x_key="x", y_key="y", max_points=max_points_per_year)
+            curves[str(year)] = [
+                [round(d["x"] / denom * 100, 3), round(d["y"], 2)] for d in sampled
+            ]
+
+        stats[str(year)] = {
+            "total_hours": n,
+            "negative_hours": sum(1 for p in prices if p < _NEGATIVE_PRICE_THRESHOLD),
+            "peak_hours": sum(1 for p in prices if p > _PEAK_PRICE_THRESHOLD),
+        }
+
+    years_sorted = sorted(by_year.keys())
+    cache_anchor = _year_end_iso(years_sorted[-1]) if years_sorted else _today_iso()
+    add_cache_headers(response, cache_anchor, _today_iso())
+    return {"years": years_sorted, "curves": curves, "stats": stats}
+
+
 @router.get("/heatmap")
 async def get_heatmap(
     request: Request,

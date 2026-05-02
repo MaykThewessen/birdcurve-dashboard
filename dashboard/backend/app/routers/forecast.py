@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query, Request, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 
 from ..downsampling import lttb_downsample
-from ._helpers import get_engine_and_dir, add_cache_headers
+from ._helpers import get_engine_and_dir, add_cache_headers, to_utc_iso
 
 router = APIRouter(prefix="/forecast", tags=["forecast"])
 
@@ -37,7 +37,7 @@ def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int):
                 continue
             actual_val = row.get("Price_actual", "")
             data.append({
-                "datetime": dt,
+                "datetime": to_utc_iso(dt),
                 "price_actual": float(actual_val) if actual_val and actual_val != "" else None,
                 "price_predicted": float(row["Price_pred_ensemble"]),
             })

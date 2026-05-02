@@ -21,9 +21,19 @@ def _records_from_df(df: pd.DataFrame) -> list[dict]:
     JSON encoder (allow_nan=False). Sanitise here so every router
     sees a clean, JSON-compliant contract.
 
+    We also localise naive datetime columns to UTC. The DuckDB
+    connection sets TimeZone='UTC', so naive TIMESTAMP values are
+    UTC-by-convention — but `str(naive_ts)` drops the marker, and JS
+    `new Date()` then interprets the string as local time. At DST
+    transitions, two distinct UTC instants can collapse to the same
+    local epoch, breaking lightweight-charts' strict-ordering check.
+
     Note: `.astype(object)` is required — assigning None into a
     float64 column would otherwise be coerced back to NaN.
     """
+    naive_dt_cols = df.select_dtypes(include=["datetime64[ns]"]).columns
+    if len(naive_dt_cols):
+        df = df.assign(**{c: df[c].dt.tz_localize("UTC") for c in naive_dt_cols})
     return df.astype(object).where(pd.notna(df), None).to_dict(orient="records")
 
 

@@ -36,6 +36,12 @@ export interface DurationCurveResponse {
   total_hours: number
 }
 
+export interface DurationCurvesResponse {
+  years: number[]
+  curves: Record<string, [number, number][]>  // year → list of [pct_of_hours, price]
+  stats: Record<string, { total_hours: number; negative_hours: number; peak_hours: number }>
+}
+
 export interface HeatmapResponse {
   hours: number[]
   months: number[]

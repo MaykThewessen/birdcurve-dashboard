@@ -56,6 +56,11 @@ export const api = {
       { year },
     ),
 
+  durationCurves: () =>
+    fetchJson<import('../types/api').DurationCurvesResponse>(
+      `${BASE}/electricity/duration-curves`,
+    ),
+
   heatmap: (year: number) =>
     fetchJson<import('../types/api').HeatmapResponse>(`${BASE}/electricity/heatmap`, { year }),
 

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from ..downsampling import lttb_downsample
+from ._helpers import to_utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ def _get_predictions_sync(prod, set_name: str, max_points: int):
         reader = csv.DictReader(f)
         for row in reader:
             data.append({
-                "datetime": row["datetime"],
+                "datetime": to_utc_iso(row["datetime"]),
                 "actual": float(row["Price_actual"]),
                 "predicted": float(row["Price_pred_ensemble"]),
             })
