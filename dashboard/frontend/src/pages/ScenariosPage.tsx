@@ -47,7 +47,6 @@ export default function ScenariosPage() {
         type: 'line',
         stack: 'capacity',
         areaStyle: { opacity: 0.7 },
-        smooth: true,
         data: data?.solar_pv_gw ?? [],
       },
       {
@@ -55,7 +54,6 @@ export default function ScenariosPage() {
         type: 'line',
         stack: 'capacity',
         areaStyle: { opacity: 0.7 },
-        smooth: true,
         data: data?.wind_on_gw ?? [],
       },
       {
@@ -63,7 +61,6 @@ export default function ScenariosPage() {
         type: 'line',
         stack: 'capacity',
         areaStyle: { opacity: 0.7 },
-        smooth: true,
         data: data?.wind_off_gw ?? [],
       },
       {
@@ -71,7 +68,6 @@ export default function ScenariosPage() {
         type: 'line',
         stack: 'capacity',
         areaStyle: { opacity: 0.7 },
-        smooth: true,
         data: data?.bess_gw ?? [],
       },
     ],

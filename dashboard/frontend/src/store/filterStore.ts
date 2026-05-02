@@ -11,8 +11,18 @@ interface FilterState {
   setCrosshairTimestamp: (ts: number | null) => void
 }
 
+// Default to the last 60 days so first-paint queries are small. Charts
+// that need full history (e.g. Price Duration Curve across all years)
+// must opt out and use their own range.
+const DEFAULT_RANGE_DAYS = 60
+const today = new Date()
+const start = new Date(today.getTime() - DEFAULT_RANGE_DAYS * 24 * 60 * 60 * 1000)
+
 export const useFilterStore = create<FilterState>((set) => ({
-  dateRange: { start: '2020-01-01', end: new Date().toISOString().slice(0, 10) },
+  dateRange: {
+    start: start.toISOString().slice(0, 10),
+    end: today.toISOString().slice(0, 10),
+  },
   scenario: '',
   theme: 'dark',
   crosshairTimestamp: null,

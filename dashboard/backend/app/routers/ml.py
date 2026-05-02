@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import csv
+import logging
 
 from fastapi import APIRouter, Query, Request, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from ..downsampling import lttb_downsample
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ml", tags=["ml"])
 
@@ -83,11 +86,17 @@ def _get_feature_importance(engine) -> list[dict]:
 
     try:
         import lightgbm as lgb
+    except ImportError:
+        logger.warning("lightgbm not installed — feature importance disabled")
+        return []
+
+    try:
         model = lgb.Booster(model_file=str(lgb_path))
         importance = model.feature_importance(importance_type="gain")
         pairs = sorted(zip(features, importance), key=lambda x: x[1], reverse=True)
         return [{"name": n, "importance": round(float(v), 1)} for n, v in pairs[:30]]
     except Exception:
+        logger.exception("feature importance failed for %s", lgb_path)
         return []
 
 
