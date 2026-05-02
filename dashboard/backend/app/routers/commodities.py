@@ -96,33 +96,30 @@ async def get_commodities(
 
 @router.get("/kpi")
 async def get_commodity_kpis(request: Request, response: Response):
-    """Latest values and daily change for each commodity."""
-    engine = request.app.state.engine
+    """Latest non-null value and change vs prior non-null per commodity.
 
-    sql = """
-        SELECT timestamp_utc, "Gas_TTF__price", "CO2_EUA__price"
-        FROM ts_daily
-        ORDER BY timestamp_utc DESC
-        LIMIT 2
+    Per-column query so a stale tail in one series (e.g. days of NULL
+    while the source feed lags) doesn't suppress the others.
     """
-    rows = engine.query(sql)
+    engine = request.app.state.engine
 
     kpis: dict = {}
     for key, col in COMMODITY_COLUMNS.items():
-        values_with_dates = [
-            (r["timestamp_utc"], r[col]) for r in rows if r[col] is not None
-        ]
-        if len(values_with_dates) >= 2:
-            latest_ts, latest = values_with_dates[0]
-            _, prev = values_with_dates[1]
-            kpis[f"{key}_latest"] = latest
-            kpis[f"{key}_change"] = round(latest - prev, 2) if latest is not None and prev is not None else 0
-            kpis[f"{key}_date"] = _date_str(latest_ts)
-        elif values_with_dates:
-            latest_ts, latest = values_with_dates[0]
-            kpis[f"{key}_latest"] = latest
-            kpis[f"{key}_change"] = 0
-            kpis[f"{key}_date"] = _date_str(latest_ts)
+        sql = f'''
+            SELECT timestamp_utc, "{col}" AS value
+            FROM ts_daily
+            WHERE "{col}" IS NOT NULL
+            ORDER BY timestamp_utc DESC
+            LIMIT 2
+        '''
+        rows = engine.query(sql)
+        if not rows:
+            continue
+        latest_ts, latest = rows[0]["timestamp_utc"], rows[0]["value"]
+        prev = rows[1]["value"] if len(rows) >= 2 else None
+        kpis[f"{key}_latest"] = latest
+        kpis[f"{key}_change"] = round(latest - prev, 2) if prev is not None else 0
+        kpis[f"{key}_date"] = _date_str(latest_ts)
 
     # KPI is always "latest" → short cache.
     response.headers["Cache-Control"] = "public, max-age=300"

@@ -8,8 +8,23 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import pandas as pd
 
 from .config import Settings
+
+
+def _records_from_df(df: pd.DataFrame) -> list[dict]:
+    """Convert DuckDB-fetched DataFrame → list[dict] with NaN/NaT → None.
+
+    pandas leaves NaN/NaT as-is in `to_dict(orient="records")`, which
+    serialises to non-standard `NaN` and is rejected by FastAPI's
+    JSON encoder (allow_nan=False). Sanitise here so every router
+    sees a clean, JSON-compliant contract.
+
+    Note: `.astype(object)` is required — assigning None into a
+    float64 column would otherwise be coerced back to NaN.
+    """
+    return df.astype(object).where(pd.notna(df), None).to_dict(orient="records")
 
 
 class DataEngine:
@@ -111,8 +126,7 @@ class DataEngine:
         return self._small_files_cache.get(key)
 
     def query(self, sql: str, params: list | None = None) -> list[dict]:
-        result = self._conn.execute(sql, params or []).fetchdf()
-        return result.to_dict(orient="records")
+        return _records_from_df(self._conn.execute(sql, params or []).fetchdf())
 
     def query_wide(
         self,
@@ -133,7 +147,7 @@ class DataEngine:
             params.append(end)
         where_sql = ("WHERE " + " AND ".join(where)) if where else ""
         sql = f'SELECT "{timestamp_col}", {quoted} FROM {table} {where_sql} ORDER BY "{timestamp_col}"'
-        return self._conn.execute(sql, params).fetchdf().to_dict(orient="records")
+        return _records_from_df(self._conn.execute(sql, params).fetchdf())
 
     def query_forecast_file(
         self,
@@ -149,8 +163,6 @@ class DataEngine:
         Feather files are loaded via pandas.read_feather() and registered as
         temporary DuckDB tables for SQL filtering.
         """
-        import pandas as pd
-
         fdir = self.forecast_dir(scenario)
         if fdir is None:
             return []
@@ -181,8 +193,7 @@ class DataEngine:
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
         sql = f'SELECT * FROM {read_fn} {where_clause} ORDER BY "{datetime_col}"'
-        result = self._conn.execute(sql, params).fetchdf()
-        return result.to_dict(orient="records")
+        return _records_from_df(self._conn.execute(sql, params).fetchdf())
 
     def close(self):
         self._conn.close()

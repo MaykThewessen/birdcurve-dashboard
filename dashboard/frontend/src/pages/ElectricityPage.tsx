@@ -19,6 +19,28 @@ const MONTH_NAMES = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ]
 
+function YearSelector({ value, onChange }: { value: number; onChange: (y: number) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="px-2 py-1 text-xs rounded-lg border"
+      style={{
+        backgroundColor: 'var(--bg-elevated)',
+        borderColor: 'var(--border-default)',
+        color: 'var(--text-primary)',
+        fontFamily: 'JetBrains Mono, monospace',
+      }}
+    >
+      {YEAR_OPTIONS.map((y) => (
+        <option key={y} value={y}>
+          {y}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 const SUPPLY_COLORS = {
   load: '#D4A574',
   pv: '#FDE68A',
@@ -329,26 +351,6 @@ export default function ElectricityPage() {
         da_price: p.value,
       })) ?? [],
     [chartData],
-  )
-
-  const YearSelector = ({ value, onChange }: { value: number; onChange: (y: number) => void }) => (
-    <select
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="px-2 py-1 text-xs rounded-lg border"
-      style={{
-        backgroundColor: 'var(--bg-elevated)',
-        borderColor: 'var(--border-default)',
-        color: 'var(--text-primary)',
-        fontFamily: 'JetBrains Mono, monospace',
-      }}
-    >
-      {YEAR_OPTIONS.map((y) => (
-        <option key={y} value={y}>
-          {y}
-        </option>
-      ))}
-    </select>
   )
 
   return (

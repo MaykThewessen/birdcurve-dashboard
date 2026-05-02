@@ -4,6 +4,17 @@ interface LoadingSkeletonProps {
   rows?: number
 }
 
+// Deterministic varied widths per table row: cycled by row index so the
+// skeleton looks naturally jagged but stays stable across re-renders.
+// (React 19 / react-hooks/purity disallows Math.random() during render.)
+const TABLE_ROW_WIDTHS: ReadonlyArray<readonly [string, string, string, string]> = [
+  ['82px', '58px', '62px', '70px'],
+  ['74px', '52px', '66px', '64px'],
+  ['90px', '64px', '54px', '78px'],
+  ['68px', '48px', '60px', '56px'],
+  ['86px', '56px', '70px', '76px'],
+]
+
 export default function LoadingSkeleton({
   variant = 'card',
   className = '',
@@ -34,14 +45,17 @@ export default function LoadingSkeleton({
           <div className="skeleton h-3 w-20 rounded" />
         </div>
         {/* Table rows */}
-        {Array.from({ length: rows }).map((_, i) => (
-          <div key={i} className="flex gap-4 py-2 border-b" style={{ borderColor: 'var(--border-default)' }}>
-            <div className="skeleton h-3 rounded" style={{ width: `${60 + Math.random() * 40}px` }} />
-            <div className="skeleton h-3 rounded" style={{ width: `${40 + Math.random() * 30}px` }} />
-            <div className="skeleton h-3 rounded" style={{ width: `${50 + Math.random() * 20}px` }} />
-            <div className="skeleton h-3 rounded" style={{ width: `${45 + Math.random() * 35}px` }} />
-          </div>
-        ))}
+        {Array.from({ length: rows }).map((_, i) => {
+          const widths = TABLE_ROW_WIDTHS[i % TABLE_ROW_WIDTHS.length]
+          return (
+            <div key={i} className="flex gap-4 py-2 border-b" style={{ borderColor: 'var(--border-default)' }}>
+              <div className="skeleton h-3 rounded" style={{ width: widths[0] }} />
+              <div className="skeleton h-3 rounded" style={{ width: widths[1] }} />
+              <div className="skeleton h-3 rounded" style={{ width: widths[2] }} />
+              <div className="skeleton h-3 rounded" style={{ width: widths[3] }} />
+            </div>
+          )
+        })}
       </div>
     )
   }
