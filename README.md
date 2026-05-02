@@ -2,43 +2,98 @@
 
 Interactive dashboard for Dutch electricity market data and BirdCurve NL price forecasts.
 
+![Hero — BirdCurve dashboard tour](docs/screenshots/hero-tour.gif)
+
 A six-page web app for exploring the Dutch power market and the [BirdCurve NL](https://github.com/MaykThewessen/BirdCurve_NL) price-forecasting model that drives BESS revenue analysis out to 2050. Inspect commodity prices, the supply/demand stack, day-ahead and intra-day forecasts, ML model diagnostics, ancillary-services capacity, and scenario assumptions — all backed by a single read-only DuckDB file.
 
-**Why it exists.** Energy analysts need to see the data, the forecast, and the model's behavior in one place — not a Jupyter notebook, not a static PDF. This dashboard is the interactive companion to the BirdCurve NL pipeline: same data, same model, but explorable from any browser.
+> **Why it exists.** Energy analysts need to see the data, the forecast, and the model's behavior in one place — not a Jupyter notebook, not a static PDF. This dashboard is the interactive companion to the BirdCurve NL pipeline: same data, same model, but explorable from any browser.
 
-**Highlights**
-- Native DuckDB query engine — wide-format columnar reads in milliseconds, no ORM, no Python pivot loops
-- Async FastAPI handlers with threadpool offload for blocking file I/O, and HTTP `Cache-Control` for immutable historical ranges
-- React 19 + TanStack Query + Vite 7 frontend; ECharts for analytics, TradingView lightweight-charts for time series
-- Server-side LTTB downsampling caps every chart payload to a few thousand points without losing extremes
-- 31 integration tests against a live DuckDB; bring-your-own-data design (no proprietary market data committed)
+## Highlights
 
-## What it is
+- **Native DuckDB query engine** — wide-format columnar reads in milliseconds, no ORM, no Python pivot loops
+- **Async FastAPI handlers** with threadpool offload for blocking file I/O, and HTTP `Cache-Control` for immutable historical ranges
+- **React 19 + TanStack Query + Vite 7** frontend; ECharts for analytics, TradingView lightweight-charts for time series
+- **Server-side LTTB downsampling** caps every chart payload to a few thousand points without losing extremes
+- **31 integration tests** against a live DuckDB; bring-your-own-data design (no proprietary market data committed)
 
-A FastAPI backend plus React frontend that reads from a local DuckDB file and a directory of trained model artifacts to visualize commodity prices (TTF gas, EUA CO2), Dutch electricity supply and demand (load, solar PV, wind on/offshore, cross-border flows), Day-Ahead price history and forecasts, ML model metrics and feature importance, and ancillary services (FCR / aFRR capacity and regulation states). It does not ship with data — you bring your own DuckDB file produced by the upstream [BirdCurve NL pipeline](https://github.com/MaykThewessen/BirdCurve_NL).
+## Pages
+
+The app is organized into six pages, each backed by its own FastAPI router and React route.
+
+### Commodities — TTF gas & EUA CO₂
+
+![Commodities page](docs/screenshots/page-commodities.png)
+
+Live Gas TTF, CO₂ EUA, Coal API2 and EUR/USD with KPI cards and 30-day deltas — toggle the **Marginal Costs** overlay to see how fuel + carbon translate into the cost of the next MWh on the grid (CCGT @ 40% efficiency, coal @ 46%).
+
+### Electricity — supply, demand & cross-border flows
+
+![Electricity page](docs/screenshots/page-electricity.png)
+
+Day-ahead price history with optional load / PV / wind on/offshore overlays, plus a sorted price-duration curve (with negative-hours count) and an hour-×-month heatmap that shows where on the calendar the cashflow actually lives.
+
+### Forecast — day-ahead & intra-day price predictions
+
+![Forecast page](docs/screenshots/page-forecast.png)
+
+BirdCurve NL forecast vs realised DA prices for the selected scenario, with annual avg/spread bars 2018–2050 and BESS revenue per duration class (2h / 4h / 8h DA, ID3 2h, aFRR Energy) in k€/MW/year.
+
+### ML — model diagnostics & feature importance
+
+![ML page](docs/screenshots/page-ml.png)
+
+LightGBM + CatBoost ensemble metrics (MAE / R² / RMSE / Spearman, BESS capture rate), Actual-vs-Predicted scatter coloured by price band, residual histogram with normal-fit overlay, top-20 feature importances, and per-band MAE table — everything you need to audit where the model is sharp and where it drifts.
+
+### Ancillary — FCR / aFRR capacity & regulation states
+
+![Ancillary services page](docs/screenshots/page-ancillary.png)
+
+aFRR Up/Down and FCR capacity-price time-series, an annual revenue stack (aFRR cap + FCR cap + aFRR energy) per scenario year, and a regulation-state donut (Up / Down / No / Mixed) so you can see how the balancing market actually behaves.
+
+### Scenarios — assumptions out to 2050
+
+![Scenarios page](docs/screenshots/page-scenarios.png)
+
+The assumptions feeding the forecast: stacked installed-capacity area for PV / wind on / wind off / BESS in GW, dual-axis Gas TTF and CO₂ EUA price paths, and a sortable year-by-year data table — exportable to CSV for downstream analysis.
 
 ## Architecture
 
-- **Backend**: FastAPI, native DuckDB (read-only), pydantic-settings, async routers with `run_in_threadpool` for blocking I/O, `Cache-Control` and `ETag` response headers.
-- **Frontend**: React 19 + Vite + TypeScript, TanStack Query v5, ECharts and TradingView lightweight-charts, Tailwind v4.
-- **Data plane**: a single DuckDB file in wide format (`{source}__{column}` columns) plus a directory of `Production_Ensemble_*` and `Forecast_*` model artifacts.
+- **Backend** — FastAPI, native DuckDB (read-only), pydantic-settings, async routers with `run_in_threadpool` for blocking I/O, `Cache-Control` and `ETag` response headers.
+- **Frontend** — React 19 + Vite + TypeScript, TanStack Query v5, ECharts and TradingView lightweight-charts, Tailwind v4.
+- **Data plane** — a single DuckDB file in wide format (`{source}__{column}` columns) plus a directory of `Production_Ensemble_*` and `Forecast_*` model artifacts.
+
+The dashboard does **not** ship with data — you supply your own DuckDB file produced by the upstream [BirdCurve NL pipeline](https://github.com/MaykThewessen/BirdCurve_NL).
+
+## Prerequisites
+
+Toolchains are managed by [pixi](https://pixi.sh) — Python and Node both live in pixi global envs declared in `~/.pixi/manifests/pixi-global.toml`:
+
+- `envs.main` — Python 3.12 plus the backend stack (FastAPI, granian, DuckDB, pydantic, pandas, pyarrow, …)
+- `envs.nodejs` — Node + npm + npx
+
+The Makefile invokes `$(HOME)/.pixi/envs/main/bin/python` and `$(HOME)/.pixi/bin/npm` directly, so `~/.pixi/bin` does **not** need to be on your shell PATH. If you don't have pixi installed yet:
+
+```bash
+curl -fsSL https://pixi.sh/install.sh | sh
+```
 
 ## Quickstart
 
 ```bash
-# Backend
 cd dashboard
-make install-backend
+make install                      # syncs both pixi envs + npm install
+
 export BIRDCURVE_DUCKDB_PATH=/path/to/your/birdcurve.duckdb
 export BIRDCURVE_MODEL_RESULTS_DIR=/path/to/your/model_results
-make backend     # serves on :8000
 
-# Frontend (separate terminal)
-make install-frontend
-make frontend    # serves on :5173
+make dev                          # backend on :8000, frontend on :5173
+```
 
-# Or both at once
-make dev
+Or run the halves separately:
+
+```bash
+make backend     # FastAPI on :8000 (separate terminal)
+make frontend    # Vite on :5173    (separate terminal)
 ```
 
 Open <http://localhost:5173>. The frontend talks to the backend at `http://localhost:8000` by default.
@@ -48,7 +103,7 @@ Open <http://localhost:5173>. The frontend talks to the backend at `http://local
 All settings are read from environment variables (or a `.env` file in `dashboard/backend/`).
 
 | Var | Default | Purpose |
-|-----|---------|---------|
+| --- | --- | --- |
 | `BIRDCURVE_DUCKDB_PATH` | `/Users/mayk/birdcurve_nl/data/birdcurve.duckdb` | Path to the read-only DuckDB file. |
 | `BIRDCURVE_MODEL_RESULTS_DIR` | `/Users/mayk/birdcurve_nl/model_results` | Directory containing `Production_Ensemble_*` and `Forecast_*` subdirectories. |
 | `BIRDCURVE_HISTORICAL_FEATURES_PATH` | `/Users/mayk/birdcurve_nl/Historical_data_features_engineered_*.parquet` | Glob pattern for the parquet feeding the ML correlation matrix endpoint. |
@@ -58,7 +113,7 @@ All settings are read from environment variables (or a `.env` file in `dashboard
 
 The backend expects a DuckDB file with **wide-format** time-series tables. One column per source metric, named `{source}__{column}` with a **double underscore** separator. Tables, by sampling resolution:
 
-```
+```text
 ts_15min   — 15-minute resolution (load, PV, wind on/off, cross-border, imbalance,
              aFRR/FCR activated energy, regulation state)
              columns include:
@@ -93,7 +148,7 @@ ts_daily   — daily resolution
                Gas_TTF__price
 ```
 
-All timestamps are stored in UTC. The dashboard does **not** ship with data; you supply your own DuckDB file conforming to this schema, typically produced by the upstream [BirdCurve NL pipeline](https://github.com/MaykThewessen/BirdCurve_NL).
+All timestamps are stored in UTC.
 
 ## Tests
 
@@ -103,6 +158,26 @@ BIRDCURVE_DUCKDB_PATH=/path/to/your/birdcurve.duckdb make test-backend
 ```
 
 31 backend tests cover the data loader (wide-schema queries), router responses, and configuration. The frontend has no test suite yet — `npm run build` is the contract for type-safety.
+
+## Screenshots
+
+Drop screenshots into [docs/screenshots/](docs/screenshots/) using these filenames so they render automatically:
+
+- `hero-tour.gif` — 5–10 second screencast scrolling across the six pages (recommended: ≤ 1280px wide, 10–15 fps, ≤ 8 MB so it loads inline on GitHub)
+- `page-commodities.png`, `page-electricity.png`, `page-forecast.png`, `page-ml.png`, `page-ancillary.png`, `page-scenarios.png` — static PNGs at 1600×900 or wider
+
+### Recording the hero GIF
+
+A reliable pipeline on macOS:
+
+```bash
+# 1. record a screen segment to MP4 (Cmd+Shift+5 on macOS, or use any screencast tool)
+# 2. convert MP4 → GIF with a shared palette for clean colors and small file size
+ffmpeg -i tour.mp4 -vf "fps=12,scale=1280:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" \
+  docs/screenshots/hero-tour.gif
+```
+
+Aim for under 8 MB; if the GIF is larger, drop fps to 10 or scale to 1024 wide. For a crisper alternative, commit an MP4 instead and reference it with `<video src="docs/screenshots/hero-tour.mp4" controls></video>` — GitHub renders `<video>` tags in README files.
 
 ## License
 
