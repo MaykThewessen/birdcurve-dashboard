@@ -62,6 +62,9 @@ class DataEngine:
         self._small_files_cache: dict[str, Any] = {}
         self._load_small_files()
 
+        # Register optional out-of-DB sidecars (e.g. EUR/USD daily CSV).
+        self._eur_usd_registered = self._try_register_eur_usd(settings)
+
     _TS_PATTERN = re.compile(r"(\d{8}_\d{6})")
 
     def _parse_timestamp(self, dirname: str) -> datetime | None:
@@ -120,6 +123,34 @@ class DataEngine:
         fl_path = prod / "feature_list.txt"
         if fl_path.exists():
             self._small_files_cache["feature_list"] = fl_path.read_text().strip().split("\n")
+
+    def _try_register_eur_usd(self, settings: Settings) -> bool:
+        """Resolve the eur_usd_path glob and register the CSV as a DuckDB
+        temp table named 'eur_usd' (columns: date DATE, USD_per_EUR DOUBLE).
+        Returns True if a file was found and registered, False otherwise.
+        """
+        from glob import glob
+        matches = sorted(glob(str(settings.eur_usd_path)))
+        if not matches:
+            return False
+        # Use the most recent (highest sort) file in case multiple are present.
+        csv = matches[-1]
+        try:
+            self._conn.execute(
+                f"""
+                CREATE TEMP TABLE eur_usd AS
+                SELECT CAST(datetime_UTC AS DATE) AS date,
+                       USD_per_EUR
+                FROM read_csv_auto('{csv}')
+                """
+            )
+            return True
+        except Exception:
+            return False
+
+    @property
+    def has_eur_usd(self) -> bool:
+        return self._eur_usd_registered
 
     @property
     def latest_production_model(self) -> Path | None:

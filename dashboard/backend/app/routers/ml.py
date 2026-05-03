@@ -213,6 +213,7 @@ def _get_price_distributions_forecast_sync(engine, scenario: str):
             x_range = np.linspace(vals.min() - 20, vals.max() + 20, 100)
             kde_y = kde(x_range).tolist()
         except Exception:
+            logger.exception("KDE failed for forecast distributions year=%s n=%d", year, len(vals))
             x_range = []
             kde_y = []
         distributions.append({
@@ -281,6 +282,7 @@ async def get_price_distributions(
             x_range = np.linspace(vals.min() - 20, vals.max() + 20, 100)
             kde_y = kde(x_range).tolist()
         except Exception:
+            logger.exception("KDE failed for historical distributions year=%s n=%d", year, len(vals))
             x_range = []
             kde_y = []
 

@@ -19,7 +19,10 @@ COMMODITY_COLUMNS = {
 }
 
 # Frontend-visible series keys that are intentionally empty (not in DB yet).
-_EMPTY_SERIES_KEYS = ["coal_api2", "eur_usd"]
+# eur_usd lives outside the DuckDB but gets registered as a temp table by
+# the engine when the configured CSV is available — see commodities series
+# block below.
+_EMPTY_SERIES_KEYS = ["coal_api2"]
 
 # CCGT marginal cost: Gas_TTF / 0.40 + CO2 * 0.400 (40% efficiency, 0.4 tCO2/MWh)
 _GAS_EFFICIENCY = 0.40
@@ -74,6 +77,23 @@ async def get_commodities(
     for key in _EMPTY_SERIES_KEYS:
         result[key] = []
 
+    # EUR/USD comes from a sidecar CSV registered by the engine at startup.
+    if engine.has_eur_usd:
+        eur_usd_rows = engine.query(
+            'SELECT date, USD_per_EUR FROM eur_usd '
+            'WHERE date >= ? AND date <= ? '
+            'ORDER BY date',
+            [start, end],
+        )
+        eur_usd_series = [
+            {"date": _date_str(r["date"]), "value": r["USD_per_EUR"]}
+            for r in eur_usd_rows
+            if r["USD_per_EUR"] is not None
+        ]
+        result["eur_usd"] = _downsample(eur_usd_series, max_points)
+    else:
+        result["eur_usd"] = []
+
     if include_marginal:
         gas_col = COMMODITY_COLUMNS["gas_ttf"]
         co2_col = COMMODITY_COLUMNS["co2_eua"]
@@ -120,6 +140,20 @@ async def get_commodity_kpis(request: Request, response: Response):
         kpis[f"{key}_latest"] = latest
         kpis[f"{key}_change"] = round(latest - prev, 2) if prev is not None else 0
         kpis[f"{key}_date"] = _date_str(latest_ts)
+
+    # EUR/USD KPI from sidecar table when available.
+    if engine.has_eur_usd:
+        rows = engine.query(
+            'SELECT date, USD_per_EUR FROM eur_usd '
+            'WHERE USD_per_EUR IS NOT NULL '
+            'ORDER BY date DESC LIMIT 2'
+        )
+        if rows:
+            latest = rows[0]["USD_per_EUR"]
+            prev = rows[1]["USD_per_EUR"] if len(rows) >= 2 else None
+            kpis["eur_usd_latest"] = latest
+            kpis["eur_usd_change"] = round(latest - prev, 4) if prev is not None else 0
+            kpis["eur_usd_date"] = _date_str(rows[0]["date"])
 
     # KPI is always "latest" → short cache.
     response.headers["Cache-Control"] = "public, max-age=300"

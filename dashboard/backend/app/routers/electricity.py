@@ -42,6 +42,28 @@ def _to_gw(value):
     return None if _is_missing(value) else round(value / _MW_TO_GW, 3)
 
 
+_RESOLUTION_BUCKETS = {
+    "15min": "time_bucket(INTERVAL '15 minutes', timestamp_utc)",
+    "hourly": "date_trunc('hour', timestamp_utc)",
+    "daily": "date_trunc('day', timestamp_utc)",
+}
+
+
+def _auto_resolution(start: str, end: str) -> str:
+    """Pick a sane bucket size from the requested range."""
+    try:
+        d_start = datetime.fromisoformat(start[:10])
+        d_end = datetime.fromisoformat(end[:10])
+        days = (d_end - d_start).days
+    except ValueError:
+        return "hourly"
+    if days <= 7:
+        return "15min"
+    if days <= 90:
+        return "hourly"
+    return "daily"
+
+
 @router.get("/historical")
 async def get_historical(
     request: Request,
@@ -49,22 +71,33 @@ async def get_historical(
     start: str = Query(...),
     end: str = Query(...),
     max_points: int = Query(5000, ge=10, le=50000),
+    resolution: str = Query("auto", pattern="^(auto|15min|hourly|daily)$"),
 ):
     engine = request.app.state.engine
 
-    da_rows = engine.query_wide(
-        "ts_hourly", ["DA_price__DA_price"], start, end
-    )
+    if resolution == "auto":
+        resolution = _auto_resolution(start, end)
+    bucket = _RESOLUTION_BUCKETS[resolution]
+
+    da_sql = f"""
+        SELECT {bucket} AS bucket,
+               AVG("DA_price__DA_price") AS value
+        FROM ts_hourly
+        WHERE timestamp_utc >= ? AND timestamp_utc <= ?
+          AND "DA_price__DA_price" IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1
+    """
+    da_rows = engine.query(da_sql, [start, end])
     da_series = [
-        {"timestamp": str(r["timestamp_utc"]), "value": r["DA_price__DA_price"]}
+        {"timestamp": str(r["bucket"]), "value": r["value"]}
         for r in da_rows
-        if not _is_missing(r["DA_price__DA_price"])
+        if not _is_missing(r["value"])
     ]
 
-    # 15-min → hourly rollup directly in DuckDB; wide-format response shape.
-    supply_sql = """
+    supply_sql = f"""
         SELECT
-            date_trunc('hour', timestamp_utc)             AS hour,
+            {bucket}                                      AS bucket,
             AVG("Load_NL__Actual_Load_MW")                AS load,
             AVG("NED_PV__PV")                             AS pv,
             AVG("NED_Wind_Onshore__Wind_Onshore")         AS wind_onshore,
@@ -79,7 +112,7 @@ async def get_historical(
 
     supply_series = [
         {
-            "timestamp":     str(r["hour"]),
+            "timestamp":     str(r["bucket"]),
             "load":          _to_gw(r["load"]),
             "pv":            _to_gw(r["pv"]),
             "wind_onshore":  _to_gw(r["wind_onshore"]),

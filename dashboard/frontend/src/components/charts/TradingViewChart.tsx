@@ -27,6 +27,12 @@ interface TradingViewChartProps {
   height?: number
   className?: string
   fitContent?: boolean
+  /**
+   * Called (debounced) whenever the user pans/zooms the chart and
+   * the visible time range changes. Receives the new range as ISO
+   * date strings so callers can refetch at the appropriate resolution.
+   */
+  onVisibleRangeChange?: (start: string, end: string) => void
 }
 
 export default function TradingViewChart({
@@ -34,12 +40,17 @@ export default function TradingViewChart({
   height = 300,
   className = '',
   fitContent = true,
+  onVisibleRangeChange,
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRefs = useRef<ISeriesApi<any>[]>([])
   const { setCrosshairTimestamp } = useFilterStore()
+  const onRangeRef = useRef(onVisibleRangeChange)
+  useEffect(() => {
+    onRangeRef.current = onVisibleRangeChange
+  }, [onVisibleRangeChange])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -83,6 +94,22 @@ export default function TradingViewChart({
       }
     })
 
+    // Visible-range subscription (debounced) for dynamic-resolution refetch.
+    // The handler reads from onRangeRef so the latest callback identity is
+    // used without restarting the subscription on every re-render.
+    let rangeTimer: ReturnType<typeof setTimeout> | null = null
+    const handleRange = (range: { from: unknown; to: unknown } | null) => {
+      const cb = onRangeRef.current
+      if (!cb || !range || typeof range.from !== 'number' || typeof range.to !== 'number') return
+      if (rangeTimer) clearTimeout(rangeTimer)
+      rangeTimer = setTimeout(() => {
+        const startIso = new Date((range.from as number) * 1000).toISOString().slice(0, 10)
+        const endIso = new Date((range.to as number) * 1000).toISOString().slice(0, 10)
+        cb(startIso, endIso)
+      }, 400)
+    }
+    chart.timeScale().subscribeVisibleTimeRangeChange(handleRange)
+
     // Resize observer
     const resizeObserver = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
@@ -92,6 +119,8 @@ export default function TradingViewChart({
     resizeObserver.observe(containerRef.current)
 
     return () => {
+      if (rangeTimer) clearTimeout(rangeTimer)
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(handleRange)
       resizeObserver.disconnect()
       chart.remove()
       chartRef.current = null

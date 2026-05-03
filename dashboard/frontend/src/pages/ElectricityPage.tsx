@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { subDays, format } from 'date-fns'
 import { api } from '../api/client'
@@ -78,6 +78,28 @@ export default function ElectricityPage() {
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR)
   const [activeOverlays, setActiveOverlays] = useState<Set<OverlayKey>>(new Set())
 
+  // chartRange tracks the user's current zoom on the historical chart.
+  // It defaults to (and resets with) the global dateRange but is overridden
+  // by visible-range-change events from TradingViewChart, which trigger a
+  // refetch at whichever resolution the backend auto-selects for the new
+  // span. Without this, the user gets daily granularity even after zooming
+  // to a one-week window.
+  // Reset zoom-tracked range when the global dateRange changes. Uses the
+  // during-render reset pattern (React 19 / react-hooks/set-state-in-effect
+  // disallows useEffect(() => setX(prop)).
+  const [chartRange, setChartRange] = useState(dateRange)
+  const [trackedDateRange, setTrackedDateRange] = useState(dateRange)
+  if (
+    trackedDateRange.start !== dateRange.start ||
+    trackedDateRange.end !== dateRange.end
+  ) {
+    setTrackedDateRange(dateRange)
+    setChartRange(dateRange)
+  }
+  const handleVisibleRangeChange = useCallback((start: string, end: string) => {
+    setChartRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+  }, [])
+
   // KPI data: last 30 days of electricity data
   const kpiStart = format(subDays(new Date(), 30), 'yyyy-MM-dd')
   const kpiEnd = format(new Date(), 'yyyy-MM-dd')
@@ -88,10 +110,12 @@ export default function ElectricityPage() {
   })
 
 
-  // Main chart data
+  // Main chart data — resolution=auto so the backend picks 15min/hourly/daily
+  // based on chartRange span. Zoom in narrows the span; the backend bumps
+  // resolution; the chart re-renders at finer granularity.
   const { data: chartData, isLoading: chartLoading, error: chartError } = useQuery({
-    queryKey: ['electricity-historical', dateRange.start, dateRange.end],
-    queryFn: () => api.electricityHistorical(dateRange.start, dateRange.end, 8000),
+    queryKey: ['electricity-historical', chartRange.start, chartRange.end],
+    queryFn: () => api.electricityHistorical(chartRange.start, chartRange.end, 8000),
   })
 
   // Duration curves — one per historical year, plotted on a shared
@@ -450,7 +474,11 @@ export default function ElectricityPage() {
         exportData={exportData}
         exportFilename="da_price_history"
       >
-        <TradingViewChart series={chartSeries} height={380} />
+        <TradingViewChart
+          series={chartSeries}
+          height={380}
+          onVisibleRangeChange={handleVisibleRangeChange}
+        />
       </ChartWrapper>
 
       {/* Duration curve + Heatmap */}

@@ -44,10 +44,10 @@ export const api = {
   commodityKpi: () =>
     fetchJson<import('../types/api').CommodityKpiResponse>(`${BASE}/commodities/kpi`),
 
-  electricityHistorical: (start: string, end: string, maxPoints = 5000) =>
+  electricityHistorical: (start: string, end: string, maxPoints = 5000, resolution = 'auto') =>
     fetchJson<import('../types/api').ElectricityHistoricalResponse>(
       `${BASE}/electricity/historical`,
-      { start, end, max_points: maxPoints },
+      { start, end, max_points: maxPoints, resolution },
     ),
 
   durationCurve: (year: number) =>

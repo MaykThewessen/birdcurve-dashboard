@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     historical_features_path: Path = Path(
         "/Users/mayk/birdcurve_nl/Historical_data_features_engineered_*.parquet"
     )
+    # CSV with two columns (datetime_UTC, USD_per_EUR), resolved via glob.
+    # Optional — endpoints fall back to empty arrays if the file is absent.
+    eur_usd_path: Path = Path(
+        "/Users/mayk/birdcurve_nl/Coal/EUR_USD_daily_*.csv"
+    )
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:5173"]
     default_max_points_hourly: int = 5000
