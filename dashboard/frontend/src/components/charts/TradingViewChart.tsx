@@ -97,14 +97,34 @@ export default function TradingViewChart({
     // Visible-range subscription (debounced) for dynamic-resolution refetch.
     // The handler reads from onRangeRef so the latest callback identity is
     // used without restarting the subscription on every re-render.
+    //
+    // CRITICAL: lightweight-charts fires this event on every setData call,
+    // not just user interaction. Without filtering, a refetch → setData →
+    // range event → refetch loop will run until React 19's perf buffer
+    // overflows and the page hangs ("DataCloneError: out of memory").
+    // We filter by suppressing events whose range is essentially identical
+    // to the last one we fired — a 1% deadband relative to the span.
     let rangeTimer: ReturnType<typeof setTimeout> | null = null
+    let lastFired: { from: number; to: number } | null = null
     const handleRange = (range: { from: unknown; to: unknown } | null) => {
       const cb = onRangeRef.current
       if (!cb || !range || typeof range.from !== 'number' || typeof range.to !== 'number') return
+      const from = range.from as number
+      const to = range.to as number
+      if (lastFired) {
+        const span = to - from
+        if (
+          Math.abs(from - lastFired.from) < span * 0.01 &&
+          Math.abs(to - lastFired.to) < span * 0.01
+        ) {
+          return
+        }
+      }
       if (rangeTimer) clearTimeout(rangeTimer)
       rangeTimer = setTimeout(() => {
-        const startIso = new Date((range.from as number) * 1000).toISOString().slice(0, 10)
-        const endIso = new Date((range.to as number) * 1000).toISOString().slice(0, 10)
+        lastFired = { from, to }
+        const startIso = new Date(from * 1000).toISOString().slice(0, 10)
+        const endIso = new Date(to * 1000).toISOString().slice(0, 10)
         cb(startIso, endIso)
       }, 400)
     }

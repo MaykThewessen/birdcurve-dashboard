@@ -44,8 +44,24 @@ export default function ForecastPage() {
     setTrackedDateRange(dateRange)
     setChartRange(dateRange)
   }
+  // Only refetch on real zoom-in or pan-beyond-envelope. See ElectricityPage
+  // for the same guard — without it, programmatic range events from setData
+  // form a refetch loop that hangs the page.
   const handleVisibleRangeChange = useCallback((start: string, end: string) => {
-    setChartRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+    setChartRange((prev) => {
+      if (prev.start === start && prev.end === end) return prev
+      const newStart = Date.parse(start)
+      const newEnd = Date.parse(end)
+      const prevStart = Date.parse(prev.start)
+      const prevEnd = Date.parse(prev.end)
+      if (!Number.isFinite(newStart) || !Number.isFinite(newEnd)) return prev
+      const newSpan = newEnd - newStart
+      const prevSpan = prevEnd - prevStart
+      const zoomedIn = newSpan < prevSpan * 0.7
+      const pannedOut =
+        newStart < prevStart - prevSpan * 0.1 || newEnd > prevEnd + prevSpan * 0.1
+      return zoomedIn || pannedOut ? { start, end } : prev
+    })
   }, [])
 
   const { data: statsData, isLoading: statsLoading } = useQuery({

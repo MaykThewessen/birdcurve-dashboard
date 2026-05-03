@@ -21,7 +21,7 @@ import type { EChartsOption } from 'echarts'
 import { useMemo } from 'react'
 
 // Register only the parts of ECharts that the dashboard actually uses,
-// trimming the bundle from the full ~1.1 MB monolith down to ~300 KB.
+// trimming the bundle from the full ~1.1 MB monolith down to ~650 KB.
 // If you add a new chart type or option (e.g. dataZoom), import it from
 // echarts/charts or echarts/components and add it to the use() list.
 echarts.use([

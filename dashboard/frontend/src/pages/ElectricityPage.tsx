@@ -96,8 +96,25 @@ export default function ElectricityPage() {
     setTrackedDateRange(dateRange)
     setChartRange(dateRange)
   }
+  // Only refetch on a meaningful zoom-in (≥30% narrower) or a pan beyond
+  // the current envelope. Programmatic events from setData (which the
+  // chart fires on every data update) tend to mirror the existing range
+  // and are filtered out here as a second line of defence.
   const handleVisibleRangeChange = useCallback((start: string, end: string) => {
-    setChartRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+    setChartRange((prev) => {
+      if (prev.start === start && prev.end === end) return prev
+      const newStart = Date.parse(start)
+      const newEnd = Date.parse(end)
+      const prevStart = Date.parse(prev.start)
+      const prevEnd = Date.parse(prev.end)
+      if (!Number.isFinite(newStart) || !Number.isFinite(newEnd)) return prev
+      const newSpan = newEnd - newStart
+      const prevSpan = prevEnd - prevStart
+      const zoomedIn = newSpan < prevSpan * 0.7
+      const pannedOut =
+        newStart < prevStart - prevSpan * 0.1 || newEnd > prevEnd + prevSpan * 0.1
+      return zoomedIn || pannedOut ? { start, end } : prev
+    })
   }, [])
 
   // KPI data: last 30 days of electricity data
