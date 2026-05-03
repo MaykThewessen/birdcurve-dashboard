@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { UTCTimestamp } from 'lightweight-charts'
 import { api } from '../api/client'
@@ -31,6 +32,22 @@ function fmtKeur(v: number | undefined): string {
 export default function ForecastPage() {
   const { scenario, dateRange } = useFilterStore()
 
+  // chartRange follows dateRange but lets chart-zoom override it so the
+  // backend can refetch at higher resolution. See ElectricityPage for the
+  // same pattern + during-render reset.
+  const [chartRange, setChartRange] = useState(dateRange)
+  const [trackedDateRange, setTrackedDateRange] = useState(dateRange)
+  if (
+    trackedDateRange.start !== dateRange.start ||
+    trackedDateRange.end !== dateRange.end
+  ) {
+    setTrackedDateRange(dateRange)
+    setChartRange(dateRange)
+  }
+  const handleVisibleRangeChange = useCallback((start: string, end: string) => {
+    setChartRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+  }, [])
+
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['annual-stats', scenario],
     queryFn: () => api.annualStats(scenario),
@@ -38,8 +55,8 @@ export default function ForecastPage() {
   })
 
   const { data: forecastData, isLoading: forecastLoading, error: forecastError } = useQuery({
-    queryKey: ['forecast-da', dateRange.start, dateRange.end, scenario],
-    queryFn: () => api.forecastDa(dateRange.start, dateRange.end, scenario),
+    queryKey: ['forecast-da', chartRange.start, chartRange.end, scenario],
+    queryFn: () => api.forecastDa(chartRange.start, chartRange.end, scenario),
     enabled: !!scenario,
   })
 
@@ -322,7 +339,11 @@ export default function ForecastPage() {
             exportFilename={`da_forecast_${scenario}`}
           >
             {forecastSeries.length > 0 ? (
-              <TradingViewChart series={forecastSeries} height={380} />
+              <TradingViewChart
+                series={forecastSeries}
+                height={380}
+                onVisibleRangeChange={handleVisibleRangeChange}
+              />
             ) : (
               <div
                 className="flex items-center justify-center"

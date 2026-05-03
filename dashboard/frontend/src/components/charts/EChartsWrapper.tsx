@@ -1,6 +1,44 @@
-import ReactECharts from 'echarts-for-react'
+import ReactEChartsCore from 'echarts-for-react/lib/core'
+import * as echarts from 'echarts/core'
+import {
+  BarChart,
+  HeatmapChart,
+  LineChart,
+  PieChart,
+  ScatterChart,
+} from 'echarts/charts'
+import {
+  AxisPointerComponent,
+  GridComponent,
+  LegendComponent,
+  MarkLineComponent,
+  TitleComponent,
+  TooltipComponent,
+  VisualMapComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import { useMemo } from 'react'
+
+// Register only the parts of ECharts that the dashboard actually uses,
+// trimming the bundle from the full ~1.1 MB monolith down to ~300 KB.
+// If you add a new chart type or option (e.g. dataZoom), import it from
+// echarts/charts or echarts/components and add it to the use() list.
+echarts.use([
+  LineChart,
+  BarChart,
+  ScatterChart,
+  PieChart,
+  HeatmapChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  TitleComponent,
+  VisualMapComponent,
+  MarkLineComponent,
+  AxisPointerComponent,
+  CanvasRenderer,
+])
 
 interface EChartsWrapperProps {
   option: EChartsOption
@@ -57,7 +95,8 @@ export default function EChartsWrapper({
   )
 
   return (
-    <ReactECharts
+    <ReactEChartsCore
+      echarts={echarts}
       option={mergedOption}
       style={{ height, width: '100%', ...style }}
       className={className}

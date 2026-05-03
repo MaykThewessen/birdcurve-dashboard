@@ -26,9 +26,10 @@ class TestCommoditiesEndpoint:
         data = resp.json()
         # Gas marginal computed from gas_ttf + co2 (both present).
         assert len(data["gas_marginal"]) > 0
-        # Coal_API2 is intentionally not in the live DuckDB ts_daily (Phase 3
-        # decision), so coal_marginal is always empty array.
-        assert data["coal_marginal"] == []
+        # Coal marginal is computed when the Coal API2 sidecar CSV is
+        # registered; without the sidecar the field is an empty list.
+        # Both shapes are valid — assert it's a list.
+        assert isinstance(data["coal_marginal"], list)
 
     def test_commodities_kpi(self, client):
         resp = client.get("/api/commodities/kpi")

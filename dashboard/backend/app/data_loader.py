@@ -64,6 +64,7 @@ class DataEngine:
 
         # Register optional out-of-DB sidecars (e.g. EUR/USD daily CSV).
         self._eur_usd_registered = self._try_register_eur_usd(settings)
+        self._coal_api2_registered = self._try_register_coal_api2(settings)
 
     _TS_PATTERN = re.compile(r"(\d{8}_\d{6})")
 
@@ -151,6 +152,34 @@ class DataEngine:
     @property
     def has_eur_usd(self) -> bool:
         return self._eur_usd_registered
+
+    def _try_register_coal_api2(self, settings: Settings) -> bool:
+        """Register the Coal API2 daily CSV as DuckDB temp table 'coal_api2'.
+
+        The CSV has columns (datetime_UTC, price_USD_ton, ...); we only
+        project what the dashboard needs. Returns True on success.
+        """
+        from glob import glob
+        matches = sorted(glob(str(settings.coal_api2_path)))
+        if not matches:
+            return False
+        csv = matches[-1]
+        try:
+            self._conn.execute(
+                f"""
+                CREATE TEMP TABLE coal_api2 AS
+                SELECT CAST(datetime_UTC AS DATE) AS date,
+                       price_USD_ton
+                FROM read_csv_auto('{csv}')
+                """
+            )
+            return True
+        except Exception:
+            return False
+
+    @property
+    def has_coal_api2(self) -> bool:
+        return self._coal_api2_registered
 
     @property
     def latest_production_model(self) -> Path | None:

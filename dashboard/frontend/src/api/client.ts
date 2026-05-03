@@ -87,12 +87,13 @@ export const api = {
   scenario: (scenario: string) =>
     fetchJson<import('../types/api').ScenarioDataResponse>(`${BASE}/scenarios`, { scenario }),
 
-  forecastDa: (start: string, end: string, scenario: string, maxPoints = 10000) =>
+  forecastDa: (start: string, end: string, scenario: string, maxPoints = 10000, resolution = 'auto') =>
     fetchJson<import('../types/api').DAForecastResponse>(`${BASE}/forecast/da`, {
       start,
       end,
       scenario,
       max_points: maxPoints,
+      resolution,
     }),
 
   forecastId3: (start: string, end: string, scenario: string, maxPoints = 10000) =>

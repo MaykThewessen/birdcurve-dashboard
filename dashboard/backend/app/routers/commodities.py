@@ -19,14 +19,24 @@ COMMODITY_COLUMNS = {
 }
 
 # Frontend-visible series keys that are intentionally empty (not in DB yet).
-# eur_usd lives outside the DuckDB but gets registered as a temp table by
-# the engine when the configured CSV is available — see commodities series
-# block below.
-_EMPTY_SERIES_KEYS = ["coal_api2"]
+# eur_usd and coal_api2 live outside the DuckDB but get registered as temp
+# tables by the engine when the configured CSVs are available — see series
+# blocks below.
+_EMPTY_SERIES_KEYS: list[str] = []
 
 # CCGT marginal cost: Gas_TTF / 0.40 + CO2 * 0.400 (40% efficiency, 0.4 tCO2/MWh)
 _GAS_EFFICIENCY = 0.40
 _GAS_EMISSIONS_T_PER_MWH = 0.400
+
+# Coal marginal cost: (Coal_USD_ton / 6.978 + CO2 * 0.335) / 0.46
+# 6.978 ≈ MWh per ton at 25.12 GJ/ton LHV (3.6 GJ/MWh → 6.978 MWh/ton).
+# 0.335 tCO2/MWh_th is the standard thermal-coal emissions factor.
+# 0.46 is a typical hard-coal plant efficiency.
+# Note: coal price is in USD; the simplification treats USD≈EUR for this
+# headline metric. Use the EUR/USD series client-side for currency-exact work.
+_COAL_MWH_PER_TON = 6.978
+_COAL_EMISSIONS_T_PER_MWH = 0.335
+_COAL_EFFICIENCY = 0.46
 
 
 def _date_str(ts) -> str:
@@ -94,6 +104,23 @@ async def get_commodities(
     else:
         result["eur_usd"] = []
 
+    # Coal API2 (Rotterdam coal futures) — same sidecar pattern as EUR/USD.
+    if engine.has_coal_api2:
+        coal_rows = engine.query(
+            'SELECT date, price_USD_ton FROM coal_api2 '
+            'WHERE date >= ? AND date <= ? '
+            'ORDER BY date',
+            [start, end],
+        )
+        coal_series = [
+            {"date": _date_str(r["date"]), "value": r["price_USD_ton"]}
+            for r in coal_rows
+            if r["price_USD_ton"] is not None
+        ]
+        result["coal_api2"] = _downsample(coal_series, max_points)
+    else:
+        result["coal_api2"] = []
+
     if include_marginal:
         gas_col = COMMODITY_COLUMNS["gas_ttf"]
         co2_col = COMMODITY_COLUMNS["co2_eua"]
@@ -107,8 +134,33 @@ async def get_commodities(
                 "value": gas / _GAS_EFFICIENCY + co2 * _GAS_EMISSIONS_T_PER_MWH,
             })
         result["gas_marginal"] = _downsample(gas_marginal, max_points)
-        # No coal data → no coal_marginal.
-        result["coal_marginal"] = []
+
+        # Coal marginal — joins ts_daily gas/CO2 dates against the coal sidecar.
+        if engine.has_coal_api2:
+            coal_lookup = {
+                _date_str(r["date"]): r["price_USD_ton"]
+                for r in engine.query(
+                    'SELECT date, price_USD_ton FROM coal_api2 '
+                    'WHERE date >= ? AND date <= ? '
+                    'AND price_USD_ton IS NOT NULL',
+                    [start, end],
+                )
+            }
+            coal_marginal = []
+            for row in rows:
+                gas, co2 = row[gas_col], row[co2_col]
+                date_key = _date_str(row["timestamp_utc"])
+                coal = coal_lookup.get(date_key)
+                if gas is None or co2 is None or coal is None:
+                    continue
+                coal_marginal.append({
+                    "date": date_key,
+                    "value": (coal / _COAL_MWH_PER_TON + co2 * _COAL_EMISSIONS_T_PER_MWH)
+                             / _COAL_EFFICIENCY,
+                })
+            result["coal_marginal"] = _downsample(coal_marginal, max_points)
+        else:
+            result["coal_marginal"] = []
 
     add_cache_headers(response, end, _today_iso())
     return result
@@ -154,6 +206,20 @@ async def get_commodity_kpis(request: Request, response: Response):
             kpis["eur_usd_latest"] = latest
             kpis["eur_usd_change"] = round(latest - prev, 4) if prev is not None else 0
             kpis["eur_usd_date"] = _date_str(rows[0]["date"])
+
+    # Coal API2 KPI from sidecar table when available.
+    if engine.has_coal_api2:
+        rows = engine.query(
+            'SELECT date, price_USD_ton FROM coal_api2 '
+            'WHERE price_USD_ton IS NOT NULL '
+            'ORDER BY date DESC LIMIT 2'
+        )
+        if rows:
+            latest = rows[0]["price_USD_ton"]
+            prev = rows[1]["price_USD_ton"] if len(rows) >= 2 else None
+            kpis["coal_api2_latest"] = latest
+            kpis["coal_api2_change"] = round(latest - prev, 2) if prev is not None else 0
+            kpis["coal_api2_date"] = _date_str(rows[0]["date"])
 
     # KPI is always "latest" → short cache.
     response.headers["Cache-Control"] = "public, max-age=300"

@@ -1,10 +1,12 @@
 """DA and ID3/Imbalance forecasts, annual statistics."""
 from __future__ import annotations
 
-import csv
+import os
 from datetime import datetime, timezone
+from functools import lru_cache
 
 import openpyxl
+import pandas as pd
 from fastapi import APIRouter, Query, Request, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 
@@ -18,36 +20,85 @@ def _today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int):
-    csv_path = list(fdir.glob("predictions_DA_hourly_*.csv"))
-    if not csv_path:
+# Resampling rules per resolution. None = take rows as-is at native granularity.
+_RESAMPLE_RULES: dict[str, str | None] = {
+    "15min": None,
+    "hourly": "1h",
+    "daily": "1D",
+}
+
+
+def _auto_resolution(start: str, end: str) -> str:
+    try:
+        d_start = datetime.fromisoformat(start[:10])
+        d_end = datetime.fromisoformat(end[:10])
+        days = (d_end - d_start).days
+    except ValueError:
+        return "hourly"
+    if days <= 7:
+        return "15min"
+    if days <= 90:
+        return "hourly"
+    return "daily"
+
+
+@lru_cache(maxsize=4)
+def _read_da_forecast_csv(csv_path: str, mtime: float) -> pd.DataFrame:
+    """Load the predictions_DA_hourly CSV once per (path, mtime).
+
+    The 'mtime' arg forces invalidation when the file on disk changes —
+    same trick used by lru_cache_with_invalidation patterns.
+    """
+    # Handle both 'datetime_UTC' (v17+) and 'datetime' (older) column names.
+    df = pd.read_csv(csv_path)
+    dt_col = "datetime_UTC" if "datetime_UTC" in df.columns else "datetime"
+    df[dt_col] = pd.to_datetime(df[dt_col]).dt.tz_localize("UTC")
+    df = df.rename(columns={dt_col: "datetime_UTC"})
+    return df
+
+
+def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int, resolution: str):
+    csv_paths = list(fdir.glob("predictions_DA_hourly_*.csv"))
+    if not csv_paths:
         raise HTTPException(404, "predictions_DA_hourly CSV not found")
+    csv_path = str(csv_paths[0])
+    df = _read_da_forecast_csv(csv_path, os.path.getmtime(csv_path))
 
-    # Handle both 'datetime_UTC' (v17+) and 'datetime' (older) column names
-    _DATETIME_COL_CANDIDATES = ["datetime_UTC", "datetime"]
+    # Filter by range. Range strings are dates ('YYYY-MM-DD'); compare against
+    # the tz-aware datetime column by promoting them to UTC tz-aware Timestamps.
+    start_ts = pd.Timestamp(start, tz="UTC")
+    end_ts = pd.Timestamp(end, tz="UTC")
+    mask = (df["datetime_UTC"] >= start_ts) & (df["datetime_UTC"] <= end_ts)
+    df = df.loc[mask, ["datetime_UTC", "Price_actual", "Price_pred_ensemble"]]
 
-    data = []
-    with open(csv_path[0]) as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or []
-        dt_col = next((c for c in _DATETIME_COL_CANDIDATES if c in fieldnames), fieldnames[0] if fieldnames else "datetime_UTC")
-        for row in reader:
-            dt = row[dt_col]
-            if dt < start or dt > end:
-                continue
-            actual_val = row.get("Price_actual", "")
-            data.append({
-                "datetime": to_utc_iso(dt),
-                "price_actual": float(actual_val) if actual_val and actual_val != "" else None,
-                "price_predicted": float(row["Price_pred_ensemble"]),
-            })
+    rule = _RESAMPLE_RULES.get(resolution)
+    if rule is not None and not df.empty:
+        df = (
+            df.set_index("datetime_UTC")
+              .resample(rule)
+              .mean(numeric_only=True)
+              .dropna(how="all")
+              .reset_index()
+        )
+
+    data = [
+        {
+            "datetime": to_utc_iso(str(r.datetime_UTC)),
+            "price_actual": None if pd.isna(r.Price_actual) else float(r.Price_actual),
+            "price_predicted": None if pd.isna(r.Price_pred_ensemble) else float(r.Price_pred_ensemble),
+        }
+        for r in df.itertuples(index=False)
+    ]
 
     if len(data) > max_points:
+        # LTTB needs a numeric y-axis; fall back to price_actual if predicted is None.
         for i, d in enumerate(data):
             d["_idx"] = i
-        data = lttb_downsample(data, "_idx", "price_predicted", max_points)
+            d["_y"] = d["price_predicted"] if d["price_predicted"] is not None else (d["price_actual"] or 0.0)
+        data = lttb_downsample(data, "_idx", "_y", max_points)
         for d in data:
             d.pop("_idx", None)
+            d.pop("_y", None)
 
     return {
         "datetime": [d["datetime"] for d in data],
@@ -64,9 +115,14 @@ async def get_da_forecast(
     end: str = Query(...),
     scenario: str = Query(...),
     max_points: int = Query(10000, ge=10, le=100000),
+    resolution: str = Query("auto", pattern="^(auto|15min|hourly|daily)$"),
 ):
     _engine, fdir = get_engine_and_dir(request, scenario)
-    payload = await run_in_threadpool(_get_da_forecast_sync, fdir, start, end, max_points)
+    if resolution == "auto":
+        resolution = _auto_resolution(start, end)
+    payload = await run_in_threadpool(
+        _get_da_forecast_sync, fdir, start, end, max_points, resolution
+    )
     add_cache_headers(response, end, _today_iso())
     return payload
 

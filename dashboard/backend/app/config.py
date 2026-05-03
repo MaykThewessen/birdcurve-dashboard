@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     eur_usd_path: Path = Path(
         "/Users/mayk/birdcurve_nl/Coal/EUR_USD_daily_*.csv"
     )
+    # CSV with at least (datetime_UTC, price_USD_ton) and optionally
+    # the precomputed price_EUR_MWh_LHV. Same fallback semantics as
+    # eur_usd_path.
+    coal_api2_path: Path = Path(
+        "/Users/mayk/birdcurve_nl/Coal/commodity_coal_API2_daily_*.csv"
+    )
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:5173"]
     default_max_points_hourly: int = 5000
