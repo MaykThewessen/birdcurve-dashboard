@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { UTCTimestamp } from 'lightweight-charts'
 import { api } from '../api/client'
@@ -169,7 +169,7 @@ export default function AncillaryPage() {
   }
 
   // Annual revenue stacked bar
-  const revenueOption: EChartsOption = {
+  const revenueOption: EChartsOption = useMemo(() => ({
     color: ['#22D3EE', '#A78BFA', '#4ADE80'],
     legend: {
       data: ['aFRR Capacity', 'FCR Capacity', 'aFRR Energy'],
@@ -233,17 +233,19 @@ export default function AncillaryPage() {
       },
     },
     grid: { top: 48, right: 20, bottom: 56, left: 70, containLabel: true },
-  }
+  }), [revenueData])
 
   // Regulation states donut chart
-  const donutData =
+  const donutData = useMemo(() =>
     regStates?.states?.map((s) => ({
       name: STATE_CONFIG[s.state]?.label ?? `State ${s.state}`,
       value: s.count,
       itemStyle: { color: STATE_CONFIG[s.state]?.color ?? '#5A6A8A' },
-    })) ?? []
+    })) ?? [],
+    [regStates],
+  )
 
-  const regulationOption: EChartsOption = {
+  const regulationOption: EChartsOption = useMemo(() => ({
     legend: {
       orient: 'vertical',
       right: 10,
@@ -281,7 +283,7 @@ export default function AncillaryPage() {
         </div>`
       },
     },
-  }
+  }), [donutData])
 
   // Year options for regulation state selector
   const yearOptions = Array.from({ length: 28 }, (_, i) => 2023 + i)

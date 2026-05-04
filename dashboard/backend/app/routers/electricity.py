@@ -48,6 +48,12 @@ _RESOLUTION_BUCKETS = {
     "daily": "date_trunc('day', timestamp_utc)",
 }
 
+# ts_hourly has been polluted with 15-min-aligned rows from 2025-09-30
+# onwards (years 2025+ contain ~15k rows instead of ~8.7k). Until upstream
+# is fixed, every consumer must filter to :00 minutes to keep counts
+# (negative_hours, peak_hours, total_hours) and hourly aggregates honest.
+_TS_HOURLY_HOURLY = 'EXTRACT(MINUTE FROM timestamp_utc) = 0'
+
 
 def _auto_resolution(start: str, end: str) -> str:
     """Pick a sane bucket size from the requested range."""
@@ -85,6 +91,7 @@ async def get_historical(
         FROM ts_hourly
         WHERE timestamp_utc >= ? AND timestamp_utc <= ?
           AND "DA_price__DA_price" IS NOT NULL
+          AND {_TS_HOURLY_HOURLY}
         GROUP BY 1
         ORDER BY 1
     """
@@ -151,11 +158,12 @@ async def get_duration_curve(
 ):
     engine = request.app.state.engine
 
-    sql = """
+    sql = f"""
         SELECT "DA_price__DA_price" AS value
         FROM ts_hourly
         WHERE timestamp_utc >= ? AND timestamp_utc < ?
           AND "DA_price__DA_price" IS NOT NULL
+          AND {_TS_HOURLY_HOURLY}
         ORDER BY value DESC
     """
     start = f"{year}-01-01"
@@ -195,11 +203,12 @@ async def get_duration_curves(
     """
     engine = request.app.state.engine
 
-    sql = """
+    sql = f"""
         SELECT EXTRACT(YEAR FROM timestamp_utc)::INT AS year,
                "DA_price__DA_price" AS value
         FROM ts_hourly
         WHERE "DA_price__DA_price" IS NOT NULL
+          AND {_TS_HOURLY_HOURLY}
     """
     rows = engine.query(sql)
 
@@ -248,7 +257,7 @@ async def get_heatmap(
 ):
     engine = request.app.state.engine
 
-    sql = """
+    sql = f"""
         SELECT
             EXTRACT(month FROM timestamp_utc) AS month,
             EXTRACT(hour  FROM timestamp_utc) AS hour,
@@ -256,6 +265,7 @@ async def get_heatmap(
         FROM ts_hourly
         WHERE timestamp_utc >= ? AND timestamp_utc < ?
           AND "DA_price__DA_price" IS NOT NULL
+          AND {_TS_HOURLY_HOURLY}
         GROUP BY 1, 2
         ORDER BY 1, 2
     """

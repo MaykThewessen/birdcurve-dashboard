@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { UTCTimestamp } from 'lightweight-charts'
 import { api } from '../api/client'
@@ -153,7 +153,7 @@ export default function ForecastPage() {
   }
 
   // Annual statistics ECharts bar chart
-  const annualStatsOption: EChartsOption = {
+  const annualStatsOption: EChartsOption = useMemo(() => ({
     color: ['#D4A574', '#60A5FA'],
     legend: { data: ['Avg DA Price', 'Daily Spread'], top: 4 },
     xAxis: {
@@ -205,10 +205,10 @@ export default function ForecastPage() {
       },
     },
     grid: { top: 48, right: 20, bottom: 56, left: 60, containLabel: true },
-  }
+  }), [statsData])
 
   // BESS Revenue chart
-  const bessRevenueOption: EChartsOption = {
+  const bessRevenueOption: EChartsOption = useMemo(() => ({
     color: ['#4ADE80', '#D4A574', '#F87171', '#22D3EE', '#A78BFA'],
     legend: {
       data: ['BESS 2h DA', 'BESS 4h DA', 'BESS 8h DA', 'ID3 2h', 'aFRR Energy'],
@@ -281,7 +281,7 @@ export default function ForecastPage() {
       },
     },
     grid: { top: 56, right: 20, bottom: 56, left: 70, containLabel: true },
-  }
+  }), [statsData])
 
   // Export data for forecast
   const forecastExport =

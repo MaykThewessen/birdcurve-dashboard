@@ -1,4 +1,5 @@
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import StalenessBadge from './StalenessBadge'
 
 interface KpiCardProps {
   title: string
@@ -8,6 +9,9 @@ interface KpiCardProps {
   loading?: boolean
   className?: string
   staggerIndex?: number
+  /** Latest data timestamp (ISO date or full ISO datetime). Renders an
+   * inline staleness badge — see StalenessBadge for thresholds. */
+  asOf?: string | null
 }
 
 export default function KpiCard({
@@ -18,6 +22,7 @@ export default function KpiCard({
   loading = false,
   className = '',
   staggerIndex = 0,
+  asOf,
 }: KpiCardProps) {
   const changePositive = change != null && change > 0
   const changeNegative = change != null && change < 0
@@ -65,11 +70,14 @@ export default function KpiCard({
         el.style.boxShadow = 'none'
       }}
     >
-      <div
-        className="text-xs font-medium uppercase tracking-wider mb-2"
-        style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}
-      >
-        {title}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div
+          className="text-xs font-medium uppercase tracking-wider"
+          style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}
+        >
+          {title}
+        </div>
+        {asOf && <StalenessBadge asOf={asOf} />}
       </div>
 
       <div className="flex items-baseline gap-2">

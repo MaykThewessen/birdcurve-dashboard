@@ -155,6 +155,7 @@ export default function CommoditiesPage() {
                 : undefined
             }
             unit={unit}
+            asOf={kpiData?.[`${key}_date`] as string | undefined}
             loading={kpiLoading}
             staggerIndex={i}
           />
@@ -231,7 +232,7 @@ export default function CommoditiesPage() {
 
       {/* Summary note */}
       <p className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
-        Gas marginal cost = Gas TTF / 0.40 + CO2 * 0.400 (CCGT, 40% efficiency, 400 kg CO2/MWh_e).
+        Gas marginal cost = (Gas TTF + CO2 * 0.202) / 0.50 (CCGT, 50% efficiency, 202 kg CO2/MWh_th).
         Coal marginal cost = (Coal_USD / 6.978 / EUR_USD + CO2 * 0.335) / 0.46 (46% efficiency,
         335 kg CO2/MWh_th, daily EUR/USD applied so the result is in EUR/MWh).
       </p>

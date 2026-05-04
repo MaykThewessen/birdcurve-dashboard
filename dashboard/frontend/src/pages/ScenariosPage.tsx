@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useFilterStore } from '../store/filterStore'
@@ -22,7 +23,7 @@ export default function ScenariosPage() {
   })
 
   // Capacity stacked area chart
-  const capacityOption: EChartsOption = {
+  const capacityOption: EChartsOption = useMemo(() => ({
     color: ['#FACC15', '#22D3EE', '#60A5FA', '#A78BFA'],
     legend: {
       data: ['Solar PV', 'Wind Onshore', 'Wind Offshore', 'BESS'],
@@ -83,10 +84,10 @@ export default function ScenariosPage() {
       },
     },
     grid: { top: 48, right: 20, bottom: 40, left: 60, containLabel: true },
-  }
+  }), [data])
 
   // Commodity futures chart — dual Y-axis
-  const commodityOption: EChartsOption = {
+  const commodityOption: EChartsOption = useMemo(() => ({
     color: ['#D4A574', '#60A5FA'],
     legend: {
       data: ['Gas TTF (EUR/MWh)', 'CO2 EUA (EUR/ton)'],
@@ -146,7 +147,7 @@ export default function ScenariosPage() {
       },
     },
     grid: { top: 48, right: 80, bottom: 40, left: 60, containLabel: true },
-  }
+  }), [data])
 
   // Export data for table
   const tableData =

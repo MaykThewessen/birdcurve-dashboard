@@ -255,12 +255,15 @@ async def get_price_distributions(
             _get_price_distributions_forecast_sync, engine, scenario
         )
 
+    # ts_hourly has 15-min-aligned rows from 2025-09-30+; filter to :00
+    # so per-year distributions aren't double-counted.
     sql = """
         SELECT
             EXTRACT(year FROM timestamp_utc) AS year,
             "DA_price__DA_price"             AS value
         FROM ts_hourly
         WHERE "DA_price__DA_price" IS NOT NULL
+          AND EXTRACT(MINUTE FROM timestamp_utc) = 0
         ORDER BY timestamp_utc
     """
     rows = engine.query(sql)

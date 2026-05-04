@@ -25,9 +25,21 @@ COMMODITY_COLUMNS = {
 # blocks below.
 _EMPTY_SERIES_KEYS: list[str] = []
 
-# CCGT marginal cost: Gas_TTF / 0.40 + CO2 * 0.400 (40% efficiency, 0.4 tCO2/MWh)
-_GAS_EFFICIENCY = 0.40
-_GAS_EMISSIONS_T_PER_MWH = 0.400
+# Gas (CCGT) marginal cost — derived from a single efficiency constant.
+# Previously the divisor (0.40) and the per-MWh_e emissions factor (0.400)
+# were chosen independently, which is how the implied efficiency in the
+# emissions term (0.202/0.400 ≈ 50.5%) drifted from the explicit divisor (40%).
+# Single source: pick efficiency, derive emissions per MWh_e.
+#
+# TODO[user-choice]: confirm _GAS_EFFICIENCY for the NL CCGT fleet.
+#   Reasonable options:
+#     0.40 — older OCGT-style baseload (current denominator), matches BCM-A peakers
+#     0.45 — NL fleet average (mix of older and modern CCGT)
+#     0.50 — modern CCGT reference (Rijnmond Energie, Sloecentrale, Maasvlakte 3)
+#     0.60 — newest H-class units (KCB, Hemweg-9 retrofit, Lelystad)
+#   A different choice changes the headline coal/gas crossover by ~15-25 %.
+_GAS_EFFICIENCY = 0.50  # PLACEHOLDER — user to confirm fleet choice
+_GAS_EMISSIONS_T_PER_MWH_TH = 0.202  # natural gas LCA combustion factor
 
 # Coal marginal cost: (Coal_USD_ton / 6.978 + CO2 * 0.335) / 0.46
 # 6.978 ≈ MWh per ton at 25.12 GJ/ton LHV (3.6 GJ/MWh → 6.978 MWh/ton).
@@ -130,9 +142,13 @@ async def get_commodities(
             gas, co2 = row[gas_col], row[co2_col]
             if gas is None or co2 is None:
                 continue
+            # (gas EUR/MWh_th + co2_eur_per_MWh_th) / efficiency → EUR/MWh_e.
+            # Equivalent to gas/eff + co2*(emissions_th/eff) but the structure
+            # mirrors the coal formula and keeps the single efficiency divisor
+            # explicit, so flipping _GAS_EFFICIENCY updates both terms together.
             gas_marginal.append({
                 "date": _date_str(row["timestamp_utc"]),
-                "value": gas / _GAS_EFFICIENCY + co2 * _GAS_EMISSIONS_T_PER_MWH,
+                "value": (gas + co2 * _GAS_EMISSIONS_T_PER_MWH_TH) / _GAS_EFFICIENCY,
             })
         result["gas_marginal"] = _downsample(gas_marginal, max_points)
 

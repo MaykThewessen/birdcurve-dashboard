@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
 import { api } from '../../api/client'
@@ -16,12 +16,19 @@ export default function ScenarioSelector({ className = '' }: ScenarioSelectorPro
     queryFn: () => api.scenariosList(),
   })
 
-  // Auto-select first scenario on load
-  useEffect(() => {
-    if (data?.scenarios && data.scenarios.length > 0 && !scenario) {
+  // Auto-select the first scenario when the list loads, using the
+  // during-render reset pattern instead of useEffect+setState — React 19
+  // (react-hooks/set-state-in-effect) treats the latter as the same
+  // anti-pattern that hung the dashboard previously. Tracking the previous
+  // scenarios-list reference lets us trigger the auto-select exactly once
+  // per fetched list, not on every render.
+  const [seenList, setSeenList] = useState<string[] | null>(null)
+  if (data?.scenarios && data.scenarios !== seenList) {
+    setSeenList(data.scenarios)
+    if (!scenario && data.scenarios.length > 0) {
       setScenario(data.scenarios[0])
     }
-  }, [data, scenario, setScenario])
+  }
 
   const scenarios = data?.scenarios ?? []
 
