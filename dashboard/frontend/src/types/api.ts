@@ -174,12 +174,13 @@ export interface AnnualStatsResponse {
 
 export interface AncillaryCapacityResponse {
   datetime: string[]
-  afrr_cap_up: number[]
-  afrr_cap_down: number[]
-  fcr_cap_price: number[]
-  afrr_vol_up: number[]
-  afrr_vol_down: number[]
-  fcr_vol: number[]
+  afrr_cap_up: (number | null)[]
+  afrr_cap_down: (number | null)[]
+  fcr_cap_price: (number | null)[]
+  afrr_vol_up: (number | null)[]
+  afrr_vol_down: (number | null)[]
+  fcr_vol: (number | null)[]
+  data_source?: ('historical' | 'forecast')[]
 }
 
 export interface AncillaryRevenueResponse {

@@ -39,10 +39,12 @@ export default function AncillaryPage() {
   const { scenario, dateRange } = useFilterStore()
   const [selectedYear, setSelectedYear] = useState<number>(2025)
 
+  // Capacity prices come from DuckDB historical first; the scenario-driven
+  // forecast file only fills in the future tail. So this query runs even
+  // before the scenario is selected — historical prices need no scenario.
   const { data: capacityData, isLoading: capacityLoading, error: capacityError } = useQuery({
     queryKey: ['ancillary-capacity', dateRange.start, dateRange.end, scenario],
-    queryFn: () => api.ancillaryCapacity(dateRange.start, dateRange.end, scenario),
-    enabled: !!scenario,
+    queryFn: () => api.ancillaryCapacity(dateRange.start, dateRange.end, scenario || null),
   })
 
   const { data: revenueData, isLoading: revenueLoading } = useQuery({
@@ -58,9 +60,14 @@ export default function AncillaryPage() {
   })
 
   // KPI helpers
-  function latestCapacity(arr?: number[]): number | undefined {
+  function latestCapacity(arr?: (number | null)[]): number | undefined {
     if (!arr || arr.length === 0) return undefined
-    return arr[arr.length - 1]
+    // Walk from the tail to skip trailing nulls — the latest *actual* price.
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const v = arr[i]
+      if (v != null) return v
+    }
+    return undefined
   }
 
   function revenueForYear(year: number, arr?: number[]): number | undefined {
@@ -95,13 +102,13 @@ export default function AncillaryPage() {
   // Capacity prices TradingView series
   const capacitySeries: TradingViewSeries[] = []
   if (capacityData && capacityData.datetime.length > 0) {
-    const toPoints = (arr: number[]) =>
+    const toPoints = (arr: (number | null)[]) =>
       capacityData.datetime
         .map((dt, i) => ({
           time: (new Date(dt).getTime() / 1000) as UTCTimestamp,
           value: arr[i],
         }))
-        .filter((p) => p.value != null && !isNaN(p.value))
+        .filter((p): p is { time: UTCTimestamp; value: number } => p.value != null && !isNaN(p.value))
         .sort((a, b) => a.time - b.time)
 
     capacitySeries.push(

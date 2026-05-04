@@ -109,11 +109,11 @@ export const api = {
       scenario,
     }),
 
-  ancillaryCapacity: (start: string, end: string, scenario: string, maxPoints = 5000) =>
+  ancillaryCapacity: (start: string, end: string, scenario: string | null = null, maxPoints = 5000) =>
     fetchJson<import('../types/api').AncillaryCapacityResponse>(`${BASE}/ancillary/capacity`, {
       start,
       end,
-      scenario,
+      ...(scenario ? { scenario } : {}),
       max_points: maxPoints,
     }),
 

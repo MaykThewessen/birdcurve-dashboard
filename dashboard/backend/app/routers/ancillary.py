@@ -16,39 +16,127 @@ def _today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def _get_capacity_sync(engine, scenario: str, start: str, end: str, max_points: int):
-    data = engine.query_forecast_file(
-        scenario,
-        "predictions_aFRR_FCR_capacity_4h_2023_2050",
-        start, end,
-        datetime_col="datetime",
+def _safe(v):
+    """Convert NaN/NA pandas values to None for JSON serialization."""
+    import math
+    if v is None:
+        return None
+    try:
+        if math.isnan(float(v)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
+def _avg(a, b):
+    """Average up/down values, surviving nulls. Returns None only if both nulls."""
+    a, b = _safe(a), _safe(b)
+    if a is None and b is None:
+        return None
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return (a + b) / 2
+
+
+def _sum_pair(a, b):
+    """Sum up/down volumes; missing component treated as 0 unless both null."""
+    a, b = _safe(a), _safe(b)
+    if a is None and b is None:
+        return None
+    return (a or 0) + (b or 0)
+
+
+def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_points: int):
+    """Historical capacity prices/volumes from DuckDB ts_4hourly first;
+    forecast CSV only fills in dates beyond the last historical point.
+
+    Why both: ts_4hourly carries actual cleared market data going back to
+    when each market started (FCR earlier, aFRR later). The forecast
+    file mixes actuals and predictions on the same axis, so historical
+    queries shouldn't depend on which scenario the user has selected.
+    """
+    # 1. Historical leg from DuckDB
+    hist_rows = engine.query(
+        '''
+        SELECT timestamp_utc                  AS dt,
+               "aFRR_capacity_price__Up"      AS afrr_cap_up,
+               "aFRR_capacity_price__Down"    AS afrr_cap_down,
+               "FCR_capacity_price__Up"       AS fcr_up,
+               "FCR_capacity_price__Down"     AS fcr_down,
+               "aFRR_capacity_volume__Up"     AS afrr_vol_up,
+               "aFRR_capacity_volume__Down"   AS afrr_vol_down,
+               "FCR_capacity_volume__Up"      AS fcr_vol_up,
+               "FCR_capacity_volume__Down"    AS fcr_vol_down
+        FROM ts_4hourly
+        WHERE timestamp_utc >= ? AND timestamp_utc <= ?
+        ORDER BY timestamp_utc
+        ''',
+        [start, end],
     )
 
-    def _safe(v):
-        """Convert NaN/NA pandas values to None for JSON serialization."""
-        import math
-        if v is None:
-            return None
-        try:
-            if math.isnan(float(v)):
-                return None
-        except (TypeError, ValueError):
-            pass
-        return v
+    capacity_keys = (
+        "afrr_cap_up", "afrr_cap_down", "fcr_up", "fcr_down",
+        "afrr_vol_up", "afrr_vol_down", "fcr_vol_up", "fcr_vol_down",
+    )
 
-    result = []
-    for d in data:
+    result: list[dict] = []
+    seen_dts: set[str] = set()
+    latest_hist_dt: str | None = None
+
+    for r in hist_rows:
+        if all(_safe(r[k]) is None for k in capacity_keys):
+            continue
+        dt_str = str(r["dt"])
+        seen_dts.add(dt_str)
+        latest_hist_dt = dt_str
         result.append({
-            "datetime": str(d.get("datetime", "")),
-            "block": _safe(d.get("block")),
-            "afrr_cap_up": _safe(d.get("aFRR_cap_up")),
-            "afrr_cap_down": _safe(d.get("aFRR_cap_down")),
-            "fcr_cap_price": _safe(d.get("FCR_cap_price")),
-            "afrr_vol_up": _safe(d.get("aFRR_vol_up")),
-            "afrr_vol_down": _safe(d.get("aFRR_vol_down")),
-            "fcr_vol": _safe(d.get("FCR_vol")),
-            "data_source": d.get("data_source"),
+            "datetime": dt_str,
+            "block": None,  # ts_4hourly doesn't carry the auction-block label
+            "afrr_cap_up": _safe(r["afrr_cap_up"]),
+            "afrr_cap_down": _safe(r["afrr_cap_down"]),
+            # FCR is symmetric in NL — average up/down for the headline price,
+            # sum the volumes since both directions are reserved.
+            "fcr_cap_price": _avg(r["fcr_up"], r["fcr_down"]),
+            "afrr_vol_up": _safe(r["afrr_vol_up"]),
+            "afrr_vol_down": _safe(r["afrr_vol_down"]),
+            "fcr_vol": _sum_pair(r["fcr_vol_up"], r["fcr_vol_down"]),
+            "data_source": "historical",
         })
+
+    # 2. Forecast tail beyond the last historical timestamp (if a scenario is
+    #    selected and the requested range extends past the historical data).
+    forecast_pivot = (latest_hist_dt or start)[:10]
+    if scenario and forecast_pivot < end:
+        try:
+            forecast_data = engine.query_forecast_file(
+                scenario,
+                "predictions_aFRR_FCR_capacity_4h_2023_2050",
+                forecast_pivot, end,
+                datetime_col="datetime",
+            )
+        except Exception:
+            forecast_data = []
+        for d in forecast_data:
+            dt_str = str(d.get("datetime", ""))
+            if not dt_str or dt_str in seen_dts:
+                continue
+            seen_dts.add(dt_str)
+            result.append({
+                "datetime": dt_str,
+                "block": _safe(d.get("block")),
+                "afrr_cap_up": _safe(d.get("aFRR_cap_up")),
+                "afrr_cap_down": _safe(d.get("aFRR_cap_down")),
+                "fcr_cap_price": _safe(d.get("FCR_cap_price")),
+                "afrr_vol_up": _safe(d.get("aFRR_vol_up")),
+                "afrr_vol_down": _safe(d.get("aFRR_vol_down")),
+                "fcr_vol": _safe(d.get("FCR_vol")),
+                "data_source": "forecast",
+            })
+
+    result.sort(key=lambda r: r["datetime"])
 
     if len(result) > max_points:
         for i, d in enumerate(result):
@@ -58,13 +146,14 @@ def _get_capacity_sync(engine, scenario: str, start: str, end: str, max_points: 
             d.pop("_idx", None)
 
     return {
-        "datetime": [r["datetime"] for r in result],
-        "afrr_cap_up": [r["afrr_cap_up"] for r in result],
+        "datetime":      [r["datetime"]      for r in result],
+        "afrr_cap_up":   [r["afrr_cap_up"]   for r in result],
         "afrr_cap_down": [r["afrr_cap_down"] for r in result],
         "fcr_cap_price": [r["fcr_cap_price"] for r in result],
-        "afrr_vol_up": [r["afrr_vol_up"] for r in result],
+        "afrr_vol_up":   [r["afrr_vol_up"]   for r in result],
         "afrr_vol_down": [r["afrr_vol_down"] for r in result],
-        "fcr_vol": [r["fcr_vol"] for r in result],
+        "fcr_vol":       [r["fcr_vol"]       for r in result],
+        "data_source":   [r["data_source"]   for r in result],
     }
 
 
@@ -74,10 +163,15 @@ async def get_capacity(
     response: Response,
     start: str = Query(...),
     end: str = Query(...),
-    scenario: str = Query(...),
+    scenario: str | None = Query(None, description="Optional — only used to fill in dates beyond the historical record"),
     max_points: int = Query(5000, ge=10, le=50000),
 ):
-    engine, _fdir = get_engine_and_dir(request, scenario)
+    # Engine is always available; only resolve fdir when a scenario is named.
+    engine = request.app.state.engine
+    if scenario:
+        # Validate the scenario name (raises 404 for unknown ones) but ignore
+        # the path return — the sync helper goes through query_forecast_file.
+        get_engine_and_dir(request, scenario)
     payload = await run_in_threadpool(
         _get_capacity_sync, engine, scenario, start, end, max_points
     )
