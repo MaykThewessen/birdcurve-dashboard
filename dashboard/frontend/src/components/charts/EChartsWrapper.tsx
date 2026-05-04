@@ -1,4 +1,9 @@
-import ReactEChartsCore from 'echarts-for-react/lib/core'
+// Use the ESM variant: lib/core.js is CJS and Vite's CJS-default interop
+// occasionally surfaces the module-namespace object instead of the
+// default export, which makes React render fail with
+// "Element type is invalid: ... but got: object". The ESM variant
+// always resolves the default export cleanly.
+import ReactEChartsCore from 'echarts-for-react/esm/core'
 import * as echarts from 'echarts/core'
 import {
   BarChart,
@@ -16,6 +21,11 @@ import {
   TooltipComponent,
   VisualMapComponent,
 } from 'echarts/components'
+// ECharts 6 split grid.containLabel out into a separate feature so it can
+// be tree-shaken. We rely on it across every chart's grid config, so opt
+// into the legacy behaviour explicitly. Alternative: migrate every chart
+// to grid.outerBounds, but that's a larger change.
+import { LegacyGridContainLabel } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import { useMemo } from 'react'
@@ -37,6 +47,7 @@ echarts.use([
   VisualMapComponent,
   MarkLineComponent,
   AxisPointerComponent,
+  LegacyGridContainLabel,
   CanvasRenderer,
 ])
 

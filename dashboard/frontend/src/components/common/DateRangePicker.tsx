@@ -53,6 +53,9 @@ export default function DateRangePicker({ className = '' }: DateRangePickerProps
       {/* Custom date inputs */}
       <div className="flex items-center gap-1">
         <input
+          id="date-range-start"
+          name="date-range-start"
+          aria-label="Start date"
           type="date"
           value={dateRange.start}
           onChange={(e) => setDateRange(e.target.value, dateRange.end)}
@@ -67,6 +70,9 @@ export default function DateRangePicker({ className = '' }: DateRangePickerProps
         />
         <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>to</span>
         <input
+          id="date-range-end"
+          name="date-range-end"
+          aria-label="End date"
           type="date"
           value={dateRange.end}
           onChange={(e) => setDateRange(dateRange.start, e.target.value)}

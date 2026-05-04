@@ -1,6 +1,7 @@
 """Commodity prices: Gas TTF, CO2 EUA, Coal API2, EUR/USD, marginal costs."""
 from __future__ import annotations
 
+import bisect
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request, Response
@@ -136,6 +137,10 @@ async def get_commodities(
         result["gas_marginal"] = _downsample(gas_marginal, max_points)
 
         # Coal marginal — joins ts_daily gas/CO2 dates against the coal sidecar.
+        # Coal is in USD/ton; convert to EUR using the daily EUR/USD rate so
+        # the result is currency-correct (without it, a 1.18 EUR/USD makes
+        # coal_marginal ~15% too high). Forward-fill missing FX days from
+        # the most recent known rate.
         if engine.has_coal_api2:
             coal_lookup = {
                 _date_str(r["date"]): r["price_USD_ton"]
@@ -146,6 +151,18 @@ async def get_commodities(
                     [start, end],
                 )
             }
+            fx_dates: list[str] = []
+            fx_rates: list[float] = []
+            if engine.has_eur_usd:
+                for r in engine.query(
+                    'SELECT date, USD_per_EUR FROM eur_usd '
+                    'WHERE date <= ? AND USD_per_EUR IS NOT NULL '
+                    'ORDER BY date',
+                    [end],
+                ):
+                    fx_dates.append(_date_str(r["date"]))
+                    fx_rates.append(r["USD_per_EUR"])
+
             coal_marginal = []
             for row in rows:
                 gas, co2 = row[gas_col], row[co2_col]
@@ -153,9 +170,15 @@ async def get_commodities(
                 coal = coal_lookup.get(date_key)
                 if gas is None or co2 is None or coal is None:
                     continue
+                # Forward-fill EUR/USD: most recent rate at or before date.
+                # Fallback 1.0 (i.e. USD-as-EUR) when no FX data is loaded
+                # — preserves the legacy behaviour for repos without the CSV.
+                idx = bisect.bisect_right(fx_dates, date_key)
+                usd_per_eur = fx_rates[idx - 1] if idx > 0 else 1.0
+                coal_eur_per_mwh = coal / _COAL_MWH_PER_TON / usd_per_eur
                 coal_marginal.append({
                     "date": date_key,
-                    "value": (coal / _COAL_MWH_PER_TON + co2 * _COAL_EMISSIONS_T_PER_MWH)
+                    "value": (coal_eur_per_mwh + co2 * _COAL_EMISSIONS_T_PER_MWH)
                              / _COAL_EFFICIENCY,
                 })
             result["coal_marginal"] = _downsample(coal_marginal, max_points)
