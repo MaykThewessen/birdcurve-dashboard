@@ -229,19 +229,32 @@ class DataEngine:
         sql = f'SELECT "{timestamp_col}", {quoted} FROM {table} {where_sql} ORDER BY "{timestamp_col}"'
         return _records_from_df(self._conn.execute(sql, params).fetchdf())
 
+    # Forecast files emit timestamps under inconsistent column names across
+    # versions: 'Datetime_UTC' (v17 csv), 'datetime_UTC' (some lowercase),
+    # 'datetime' (v16 feather). We try them in order to insulate routers
+    # from the upstream naming drift.
+    _DATETIME_COL_CANDIDATES: tuple[str, ...] = (
+        "Datetime_UTC",
+        "datetime_UTC",
+        "datetime",
+    )
+
     def query_forecast_file(
         self,
         scenario: str,
         filename_pattern: str,
         start: str | None = None,
         end: str | None = None,
-        datetime_col: str = "datetime_UTC",
+        datetime_col: str | tuple[str, ...] | None = None,
     ) -> list[dict]:
         """Query a forecast .feather or .csv file from a scenario directory.
 
         NOTE: DuckDB read_parquet() CANNOT read .feather (Arrow IPC) files.
         Feather files are loaded via pandas.read_feather() and registered as
         temporary DuckDB tables for SQL filtering.
+
+        Returns [] when the file or expected datetime column is missing
+        (so callers don't need to special-case partial scenario dirs).
         """
         fdir = self.forecast_dir(scenario)
         if fdir is None:
@@ -250,13 +263,32 @@ class DataEngine:
         feather_matches = list(fdir.glob(f"{filename_pattern}.feather"))
         csv_matches = list(fdir.glob(f"{filename_pattern}.csv"))
 
+        # Resolve which datetime column the file actually uses.
+        candidates: tuple[str, ...]
+        if datetime_col is None:
+            candidates = self._DATETIME_COL_CANDIDATES
+        elif isinstance(datetime_col, str):
+            candidates = (datetime_col, *self._DATETIME_COL_CANDIDATES)
+        else:
+            candidates = tuple(datetime_col)
+
         if feather_matches:
             df = pd.read_feather(feather_matches[0])
+            actual_col = next((c for c in candidates if c in df.columns), None)
+            if actual_col is None:
+                return []
             table_name = f"_tmp_{filename_pattern.replace('-', '_').replace(' ', '_').replace('*', 'x')}"
             self._conn.register(table_name, df)
             read_fn = table_name
         elif csv_matches:
             file_path = str(csv_matches[0])
+            # Peek at the CSV header so we know the actual datetime column
+            # without parsing the whole file.
+            with open(file_path) as fh:
+                header = fh.readline().rstrip("\n").split(",")
+            actual_col = next((c for c in candidates if c in header), None)
+            if actual_col is None:
+                return []
             read_fn = f"read_csv_auto('{file_path}')"
         else:
             return []
@@ -264,15 +296,15 @@ class DataEngine:
         where_parts = []
         params = []
         if start:
-            where_parts.append(f'"{datetime_col}" >= ?')
+            where_parts.append(f'"{actual_col}" >= ?')
             params.append(start)
         if end:
-            where_parts.append(f'"{datetime_col}" <= ?')
+            where_parts.append(f'"{actual_col}" <= ?')
             params.append(end)
 
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
-        sql = f'SELECT * FROM {read_fn} {where_clause} ORDER BY "{datetime_col}"'
+        sql = f'SELECT * FROM {read_fn} {where_clause} ORDER BY "{actual_col}"'
         return _records_from_df(self._conn.execute(sql, params).fetchdf())
 
     def close(self):

@@ -285,7 +285,13 @@ def _get_regulation_states_sync(engine, scenario: str, year: int):
     state_counts: dict[int, int] = {}
     total = 0
     for d in data:
-        state = int(d.get("Regulation_State", 0))
+        raw = d.get("Regulation_State")
+        if raw is None:
+            continue
+        try:
+            state = int(raw)
+        except (TypeError, ValueError):
+            continue
         state_counts[state] = state_counts.get(state, 0) + 1
         total += 1
 

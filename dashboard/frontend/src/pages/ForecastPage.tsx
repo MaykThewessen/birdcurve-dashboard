@@ -64,7 +64,7 @@ export default function ForecastPage() {
     })
   }, [])
 
-  const { data: statsData, isLoading: statsLoading } = useQuery({
+  const { data: statsData, isLoading: statsLoading, error: statsError } = useQuery({
     queryKey: ['annual-stats', scenario],
     queryFn: () => api.annualStats(scenario),
     enabled: !!scenario,
@@ -376,6 +376,7 @@ export default function ForecastPage() {
               title="Annual Statistics"
               subtitle="Avg DA price + Daily spread (EUR/MWh)"
               loading={statsLoading}
+              error={statsError as Error | null}
               height={320}
               exportData={
                 statsData?.years?.map((y, i) => ({
@@ -394,6 +395,7 @@ export default function ForecastPage() {
               title="BESS Revenue"
               subtitle="EUR/MW/year — by duration and market"
               loading={statsLoading}
+              error={statsError as Error | null}
               height={320}
               exportData={
                 statsData?.years?.map((y, i) => ({

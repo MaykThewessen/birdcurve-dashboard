@@ -47,13 +47,13 @@ export default function AncillaryPage() {
     queryFn: () => api.ancillaryCapacity(dateRange.start, dateRange.end, scenario || null),
   })
 
-  const { data: revenueData, isLoading: revenueLoading } = useQuery({
+  const { data: revenueData, isLoading: revenueLoading, error: revenueError } = useQuery({
     queryKey: ['ancillary-revenue', scenario],
     queryFn: () => api.ancillaryRevenue(scenario),
     enabled: !!scenario,
   })
 
-  const { data: regStates, isLoading: regLoading } = useQuery({
+  const { data: regStates, isLoading: regLoading, error: regError } = useQuery({
     queryKey: ['regulation-states', selectedYear, scenario],
     queryFn: () => api.regulationStates(selectedYear, scenario),
     enabled: !!scenario,
@@ -413,6 +413,7 @@ export default function AncillaryPage() {
               title="Annual Ancillary Revenue"
               subtitle="k€/MW/year — stacked by source"
               loading={revenueLoading}
+              error={revenueError as Error | null}
               height={320}
               exportData={
                 revenueData?.years?.map((y, i) => ({
@@ -431,6 +432,7 @@ export default function AncillaryPage() {
               title="Regulation States"
               subtitle={`Distribution for ${selectedYear}`}
               loading={regLoading}
+              error={regError as Error | null}
               height={320}
             >
               {/* Year selector */}
