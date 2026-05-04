@@ -86,6 +86,9 @@ export default function CommoditiesPage() {
         lineWidth: 2,
         title: SERIES_LABELS[key],
         type: 'line',
+        unit: SERIES_UNITS[key],
+        // EUR/USD is a sub-unit ratio; everything else is a price in 2dp.
+        decimals: key === 'eur_usd' ? 4 : 2,
       })
     })
   }

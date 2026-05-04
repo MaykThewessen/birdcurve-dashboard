@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   createChart,
   LineSeries,
@@ -22,6 +22,10 @@ export interface TradingViewSeries {
   bottomColor?: string
   /** Solid (default), Dashed for forecast / projected portions. */
   lineStyle?: 'solid' | 'dashed' | 'dotted'
+  /** Decimal places for the hover tooltip — overrides the chart's default. */
+  decimals?: number
+  /** Unit suffix shown after the value in the tooltip (e.g. 'EUR/MWh'). */
+  unit?: string
 }
 
 interface TradingViewChartProps {
@@ -35,6 +39,37 @@ interface TradingViewChartProps {
    * date strings so callers can refetch at the appropriate resolution.
    */
   onVisibleRangeChange?: (start: string, end: string) => void
+  /**
+   * Decimal places for series values shown in the hover tooltip. Use 4
+   * for sub-unit metrics (e.g. EUR/USD), default 2 covers most prices.
+   */
+  tooltipDecimals?: number
+  /**
+   * Optional unit label appended to each value in the hover tooltip.
+   */
+  tooltipUnit?: string
+  /** Set false to hide the hover-value tooltip altogether. */
+  showTooltip?: boolean
+}
+
+interface TooltipRow {
+  title: string
+  value: number
+  color: string
+  decimals: number
+  unit: string
+}
+
+interface TooltipState {
+  visible: boolean
+  x: number
+  y: number
+  /** Container width at the time of the crosshair event, captured here
+   * so the JSX can decide left-vs-right alignment without touching refs
+   * during render (React 19 react-hooks/refs disallows that). */
+  containerWidth: number
+  date: string
+  rows: TooltipRow[]
 }
 
 export default function TradingViewChart({
@@ -43,11 +78,29 @@ export default function TradingViewChart({
   className = '',
   fitContent = true,
   onVisibleRangeChange,
+  tooltipDecimals = 2,
+  tooltipUnit = '',
+  showTooltip = true,
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRefs = useRef<ISeriesApi<any>[]>([])
+  // Mirrors the latest series array so the crosshair callback (registered
+  // once per chart instance) can read up-to-date colors / titles without
+  // re-subscribing on every render. Same pattern for tooltip defaults so
+  // changing them doesn't tear down and rebuild the chart.
+  const seriesMetaRef = useRef<TradingViewSeries[]>(series)
+  const tooltipDefaultsRef = useRef({ decimals: tooltipDecimals, unit: tooltipUnit })
+  useEffect(() => {
+    seriesMetaRef.current = series
+  }, [series])
+  useEffect(() => {
+    tooltipDefaultsRef.current = { decimals: tooltipDecimals, unit: tooltipUnit }
+  }, [tooltipDecimals, tooltipUnit])
+  const [tooltip, setTooltip] = useState<TooltipState>({
+    visible: false, x: 0, y: 0, containerWidth: 0, date: '', rows: [],
+  })
   const { setCrosshairTimestamp } = useFilterStore()
   const onRangeRef = useRef(onVisibleRangeChange)
   useEffect(() => {
@@ -87,13 +140,61 @@ export default function TradingViewChart({
 
     chartRef.current = chart
 
-    // Subscribe to crosshair
+    // Subscribe to crosshair — also drives the inline hover tooltip,
+    // which reads each series's value at the crosshair time and renders
+    // them next to the cursor. param.seriesData is a Map keyed by the
+    // ISeriesApi instances we pushed into seriesRefs.
     chart.subscribeCrosshairMove((param) => {
       if (param.time) {
         setCrosshairTimestamp(param.time as number)
       } else {
         setCrosshairTimestamp(null)
       }
+
+      const inside =
+        param.point &&
+        param.point.x >= 0 &&
+        param.point.y >= 0 &&
+        containerRef.current &&
+        param.point.x <= containerRef.current.clientWidth &&
+        param.point.y <= containerRef.current.clientHeight
+
+      if (!inside || !param.time) {
+        setTooltip((prev) => (prev.visible ? { ...prev, visible: false } : prev))
+        return
+      }
+
+      const seriesArr = seriesRefs.current
+      const meta = seriesMetaRef.current
+      const rows: TooltipRow[] = []
+      seriesArr.forEach((s, i) => {
+        const point = param.seriesData.get(s) as { value?: number } | undefined
+        if (!point || typeof point.value !== 'number') return
+        const m = meta[i]
+        if (!m?.title) return
+        rows.push({
+          title: m.title,
+          value: point.value,
+          color: m.color ?? '#D4A574',
+          decimals: m.decimals ?? tooltipDefaultsRef.current.decimals,
+          unit: m.unit ?? tooltipDefaultsRef.current.unit,
+        })
+      })
+      if (rows.length === 0) {
+        setTooltip((prev) => (prev.visible ? { ...prev, visible: false } : prev))
+        return
+      }
+
+      const ts = (param.time as number) * 1000
+      const date = new Date(ts).toISOString().slice(0, 16).replace('T', ' ')
+      setTooltip({
+        visible: true,
+        x: param.point!.x,
+        y: param.point!.y,
+        containerWidth: containerRef.current?.clientWidth ?? 0,
+        date,
+        rows,
+      })
     })
 
     // Visible-range subscription (debounced) for dynamic-resolution refetch.
@@ -203,11 +304,60 @@ export default function TradingViewChart({
     }
   }, [series, fitContent])
 
+  // Decide left/right alignment from the captured container width
+  // (no ref reads during render — React 19 disallows that).
+  const tooltipOnRight = tooltip.containerWidth > 0 && tooltip.x > tooltip.containerWidth * 0.65
   return (
-    <div
-      ref={containerRef}
-      className={className}
-      style={{ width: '100%', height }}
-    />
+    <div className={className} style={{ position: 'relative', width: '100%', height }}>
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%' }}
+      />
+      {showTooltip && tooltip.visible && (
+        <div
+          style={{
+            position: 'absolute',
+            // Flip left ↔ right anchor when the cursor crosses 65% of width
+            // so the tooltip stays fully on-canvas at the right edge.
+            left: tooltipOnRight ? undefined : tooltip.x + 12,
+            right: tooltipOnRight ? tooltip.containerWidth - tooltip.x + 12 : undefined,
+            top: Math.max(8, tooltip.y - 8),
+            pointerEvents: 'none',
+            backgroundColor: 'rgba(26, 37, 64, 0.96)',
+            border: '1px solid #2A3654',
+            borderRadius: 6,
+            padding: '6px 10px',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 11,
+            color: '#E8ECF4',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+            whiteSpace: 'nowrap',
+            zIndex: 10,
+          }}
+        >
+          <div style={{ color: '#8896B3', marginBottom: 3 }}>{tooltip.date}</div>
+          {tooltip.rows.map((r) => (
+            <div
+              key={r.title}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1.5 }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  backgroundColor: r.color,
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ color: '#8896B3' }}>{r.title}</span>
+              <span style={{ marginLeft: 'auto', color: r.color, fontWeight: 600 }}>
+                {r.value.toFixed(r.decimals)}{r.unit ? ` ${r.unit}` : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
