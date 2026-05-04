@@ -348,10 +348,17 @@ export default function AncillaryPage() {
             ))}
           </div>
 
-          {/* Capacity prices — TradingView */}
+          {/* Capacity prices — TradingView. Historical = solid lines from
+              DuckDB ts_4hourly; forecast = dashed lines from
+              predictions_aFRR_FCR_capacity_4h. Heads-up: the forecast file
+              currently emits a daily-aggregated value replicated across all
+              6 blocks per day, so its absolute level can be ~10× the
+              per-block historical scale. Treat the dashed segment as a
+              relative-shape signal until the upstream unit mismatch is
+              reconciled. */}
           <ChartWrapper
             title="Capacity Prices"
-            subtitle="EUR/MW/h — aFRR Up/Down · FCR"
+            subtitle="EUR/MW/h — aFRR Up/Down · FCR (solid: actuals · dashed: forecast)"
             loading={capacityLoading}
             error={capacityError as Error | null}
             height={320}
