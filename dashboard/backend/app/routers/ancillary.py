@@ -179,6 +179,76 @@ async def get_capacity(
     return payload
 
 
+def _get_imbalance_prices_sync(engine, start: str, end: str, max_points: int):
+    """15-minute aFRR energy and imbalance prices from ts_15min.
+
+    Source-of-truth historical-only — no scenario, no forecast tail.
+    These signals are what TenneT publishes after each settlement period
+    and aren't part of the BirdCurve forecast file.
+    """
+    rows = engine.query(
+        '''
+        SELECT timestamp_utc                              AS dt,
+               "Imbalance_NL__Price_aFRR_energy_up"       AS afrr_energy_up,
+               "Imbalance_NL__Price_aFRR_energy_down"     AS afrr_energy_down,
+               "Imbalance_NL__Price_imb_long"             AS imb_long,
+               "Imbalance_NL__Price_imb_short"            AS imb_short
+        FROM ts_15min
+        WHERE timestamp_utc >= ? AND timestamp_utc <= ?
+        ORDER BY timestamp_utc
+        ''',
+        [start, end],
+    )
+
+    keys = ("afrr_energy_up", "afrr_energy_down", "imb_long", "imb_short")
+    series = []
+    for r in rows:
+        if all(_safe(r[k]) is None for k in keys):
+            continue
+        series.append({
+            "timestamp": str(r["dt"]),
+            "afrr_energy_up":   _safe(r["afrr_energy_up"]),
+            "afrr_energy_down": _safe(r["afrr_energy_down"]),
+            "imb_long":         _safe(r["imb_long"]),
+            "imb_short":        _safe(r["imb_short"]),
+        })
+
+    # Server-side LTTB downsample on the most-likely-non-null field.
+    if len(series) > max_points:
+        for i, d in enumerate(series):
+            d["_idx"] = i
+            d["_y"] = d["imb_short"] if d["imb_short"] is not None else (d["imb_long"] or 0.0)
+        series = lttb_downsample(series, "_idx", "_y", max_points)
+        for d in series:
+            d.pop("_idx", None)
+            d.pop("_y", None)
+
+    return {
+        "timestamp":        [r["timestamp"]        for r in series],
+        "afrr_energy_up":   [r["afrr_energy_up"]   for r in series],
+        "afrr_energy_down": [r["afrr_energy_down"] for r in series],
+        "imb_long":         [r["imb_long"]         for r in series],
+        "imb_short":        [r["imb_short"]        for r in series],
+    }
+
+
+@router.get("/imbalance-prices")
+async def get_imbalance_prices(
+    request: Request,
+    response: Response,
+    start: str = Query(...),
+    end: str = Query(...),
+    max_points: int = Query(8000, ge=10, le=50000),
+):
+    """aFRR energy + imbalance long/short prices at 15-min granularity from ts_15min."""
+    engine = request.app.state.engine
+    payload = await run_in_threadpool(
+        _get_imbalance_prices_sync, engine, start, end, max_points
+    )
+    add_cache_headers(response, end, _today_iso())
+    return payload
+
+
 @router.get("/revenue")
 async def get_revenue(
     request: Request,

@@ -109,6 +109,12 @@ export const api = {
       scenario,
     }),
 
+  imbalancePrices: (start: string, end: string, maxPoints = 8000) =>
+    fetchJson<import('../types/api').ImbalancePricesResponse>(
+      `${BASE}/ancillary/imbalance-prices`,
+      { start, end, max_points: maxPoints },
+    ),
+
   ancillaryCapacity: (start: string, end: string, scenario: string | null = null, maxPoints = 5000) =>
     fetchJson<import('../types/api').AncillaryCapacityResponse>(`${BASE}/ancillary/capacity`, {
       start,

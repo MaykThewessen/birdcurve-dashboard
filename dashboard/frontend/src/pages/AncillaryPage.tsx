@@ -99,40 +99,72 @@ export default function AncillaryPage() {
     },
   ]
 
-  // Capacity prices TradingView series
+  // Capacity prices: split each metric into solid (historical) + dashed
+  // (forecast) sub-series so the boundary is readable on the chart. The
+  // last historical point is repeated as the first forecast point so the
+  // dashed line picks up cleanly where the solid one ends (no visual gap).
   const capacitySeries: TradingViewSeries[] = []
   if (capacityData && capacityData.datetime.length > 0) {
-    const toPoints = (arr: (number | null)[]) =>
-      capacityData.datetime
-        .map((dt, i) => ({
-          time: (new Date(dt).getTime() / 1000) as UTCTimestamp,
+    const sources = capacityData.data_source ?? []
+    const lastHistIdx = sources.lastIndexOf('historical')
+
+    const toPoints = (arr: (number | null)[], range: 'historical' | 'forecast'): { time: UTCTimestamp; value: number }[] => {
+      const out: { time: UTCTimestamp; value: number }[] = []
+      for (let i = 0; i < capacityData.datetime.length; i++) {
+        const v = arr[i]
+        if (v == null || isNaN(v)) continue
+        const src = sources[i] ?? 'historical'
+        const include =
+          range === 'historical'
+            ? src === 'historical'
+            // For 'forecast' include the last historical point as a bridge so
+            // the dashed line connects to the solid one at the boundary.
+            : src === 'forecast' || i === lastHistIdx
+        if (!include) continue
+        out.push({
+          time: (new Date(capacityData.datetime[i]).getTime() / 1000) as UTCTimestamp,
+          value: v,
+        })
+      }
+      return out.sort((a, b) => a.time - b.time)
+    }
+
+    const metrics: { key: keyof typeof capacityData; color: string; title: string }[] = [
+      { key: 'afrr_cap_up', color: '#D4A574', title: 'aFRR Cap Up' },
+      { key: 'afrr_cap_down', color: '#60A5FA', title: 'aFRR Cap Down' },
+      { key: 'fcr_cap_price', color: '#A78BFA', title: 'FCR Cap' },
+    ]
+    for (const { key, color, title } of metrics) {
+      const arr = capacityData[key] as (number | null)[]
+      const hist = toPoints(arr, 'historical')
+      const fcst = toPoints(arr, 'forecast')
+      if (hist.length) capacitySeries.push({ data: hist, color, lineWidth: 1, title, type: 'line', lineStyle: 'solid' })
+      if (fcst.length) capacitySeries.push({ data: fcst, color, lineWidth: 1, title: `${title} (forecast)`, type: 'line', lineStyle: 'dashed' })
+    }
+  }
+
+  // 15-min imbalance + aFRR energy prices — historical-only, no scenario.
+  const { data: imbData, isLoading: imbLoading, error: imbError } = useQuery({
+    queryKey: ['imbalance-prices', dateRange.start, dateRange.end],
+    queryFn: () => api.imbalancePrices(dateRange.start, dateRange.end),
+  })
+
+  const imbalanceSeries: TradingViewSeries[] = []
+  if (imbData && imbData.timestamp.length > 0) {
+    const toImbPoints = (arr: (number | null)[]) =>
+      imbData.timestamp
+        .map((ts, i) => ({
+          time: (new Date(ts).getTime() / 1000) as UTCTimestamp,
           value: arr[i],
         }))
         .filter((p): p is { time: UTCTimestamp; value: number } => p.value != null && !isNaN(p.value))
         .sort((a, b) => a.time - b.time)
 
-    capacitySeries.push(
-      {
-        data: toPoints(capacityData.afrr_cap_up),
-        color: '#D4A574',
-        lineWidth: 1,
-        title: 'aFRR Cap Up',
-        type: 'line',
-      },
-      {
-        data: toPoints(capacityData.afrr_cap_down),
-        color: '#60A5FA',
-        lineWidth: 1,
-        title: 'aFRR Cap Down',
-        type: 'line',
-      },
-      {
-        data: toPoints(capacityData.fcr_cap_price),
-        color: '#A78BFA',
-        lineWidth: 1,
-        title: 'FCR Cap',
-        type: 'line',
-      },
+    imbalanceSeries.push(
+      { data: toImbPoints(imbData.afrr_energy_up), color: '#F87171', lineWidth: 1, title: 'aFRR Energy Up', type: 'line' },
+      { data: toImbPoints(imbData.afrr_energy_down), color: '#4ADE80', lineWidth: 1, title: 'aFRR Energy Down', type: 'line' },
+      { data: toImbPoints(imbData.imb_short), color: '#FB923C', lineWidth: 1, title: 'Imb Short', type: 'line' },
+      { data: toImbPoints(imbData.imb_long), color: '#22D3EE', lineWidth: 1, title: 'Imb Long', type: 'line' },
     )
   }
 
@@ -334,6 +366,36 @@ export default function AncillaryPage() {
                 style={{ height: 320, color: 'var(--text-muted)' }}
               >
                 No capacity price data for selected range
+              </div>
+            )}
+          </ChartWrapper>
+
+          {/* aFRR energy + imbalance prices — historical-only at 15-min granularity */}
+          <ChartWrapper
+            title="Imbalance & aFRR Energy Prices"
+            subtitle="EUR/MWh — 15-min cleared prices from TenneT (ts_15min)"
+            loading={imbLoading}
+            error={imbError as Error | null}
+            height={320}
+            exportData={
+              imbData?.timestamp.map((ts, i) => ({
+                timestamp: ts,
+                afrr_energy_up: imbData.afrr_energy_up[i] ?? '',
+                afrr_energy_down: imbData.afrr_energy_down[i] ?? '',
+                imb_long: imbData.imb_long[i] ?? '',
+                imb_short: imbData.imb_short[i] ?? '',
+              })) ?? []
+            }
+            exportFilename="ancillary_imbalance_prices"
+          >
+            {imbalanceSeries.length > 0 ? (
+              <TradingViewChart series={imbalanceSeries} height={320} />
+            ) : (
+              <div
+                className="flex items-center justify-center"
+                style={{ height: 320, color: 'var(--text-muted)' }}
+              >
+                No imbalance data for selected range
               </div>
             )}
           </ChartWrapper>

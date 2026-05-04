@@ -20,6 +20,8 @@ export interface TradingViewSeries {
   type?: 'line' | 'area'
   topColor?: string
   bottomColor?: string
+  /** Solid (default), Dashed for forecast / projected portions. */
+  lineStyle?: 'solid' | 'dashed' | 'dotted'
 }
 
 interface TradingViewChartProps {
@@ -161,11 +163,18 @@ export default function TradingViewChart({
     })
     seriesRefs.current = []
 
+    const lineStyleEnum = {
+      solid: LineStyle.Solid,
+      dashed: LineStyle.Dashed,
+      dotted: LineStyle.Dotted,
+    } as const
+
     series.forEach((s) => {
       if (!chartRef.current) return
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let newSeries: ISeriesApi<any>
+      const ls = lineStyleEnum[s.lineStyle ?? 'solid']
 
       if (s.type === 'area') {
         newSeries = chartRef.current.addSeries(AreaSeries, {
@@ -173,12 +182,14 @@ export default function TradingViewChart({
           topColor: s.topColor ?? (s.color ? `${s.color}33` : '#D4A57433'),
           bottomColor: s.bottomColor ?? 'transparent',
           lineWidth: (s.lineWidth ?? 2) as 1 | 2 | 3 | 4,
+          lineStyle: ls,
           title: s.title,
         })
       } else {
         newSeries = chartRef.current.addSeries(LineSeries, {
           color: s.color ?? '#D4A574',
           lineWidth: (s.lineWidth ?? 2) as 1 | 2 | 3 | 4,
+          lineStyle: ls,
           title: s.title,
         })
       }

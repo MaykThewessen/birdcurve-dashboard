@@ -183,6 +183,14 @@ export interface AncillaryCapacityResponse {
   data_source?: ('historical' | 'forecast')[]
 }
 
+export interface ImbalancePricesResponse {
+  timestamp: string[]
+  afrr_energy_up: (number | null)[]
+  afrr_energy_down: (number | null)[]
+  imb_long: (number | null)[]
+  imb_short: (number | null)[]
+}
+
 export interface AncillaryRevenueResponse {
   years: number[]
   afrr_cap_revenue: number[]
