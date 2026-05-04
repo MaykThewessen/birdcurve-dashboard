@@ -99,9 +99,19 @@ class DataEngine:
             after_ts = self._TS_PATTERN.sub("", d.name.replace("Forecast_", "", 1))
             scenario_key = after_ts.strip("_ ") or "default"
 
-            # Filter: only include clean version_scenario keys (e.g., "v17_Central")
+            # Filter: only include clean version_scenario keys (e.g., "v17_Central").
             # Skip old experimental dirs like "with imb at 89 percent in 2030"
-            if scenario_key != "default" and not re.match(r'^v\d+_\w+$', scenario_key):
+            # AND skip the unversioned "default" — those legacy dirs lack the
+            # current expected file layout, so frontend fetches against
+            # ?scenario=default 404 and crash downstream consumers.
+            if not re.match(r'^v\d+_\w+$', scenario_key):
+                continue
+
+            # Skip dirs that lack the headline CSVs entirely (empty placeholder
+            # dirs from interrupted runs, e.g. older v14_* skeletons). A
+            # scenario isn't "available" until it has data the routers can
+            # actually serve.
+            if not list(d.glob("predictions_DA_hourly_*.csv")):
                 continue
 
             existing = scenario_map.get(scenario_key)

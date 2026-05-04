@@ -22,6 +22,8 @@ const MONTH_NAMES = [
 function YearSelector({ value, onChange }: { value: number; onChange: (y: number) => void }) {
   return (
     <select
+      name="year"
+      aria-label="Year"
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
       className="px-2 py-1 text-xs rounded-lg border"

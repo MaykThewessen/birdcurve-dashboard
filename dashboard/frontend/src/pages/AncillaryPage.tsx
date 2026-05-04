@@ -363,6 +363,9 @@ export default function AncillaryPage() {
                   Year:
                 </span>
                 <select
+                  id="ancillary-year"
+                  name="year"
+                  aria-label="Year"
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(Number(e.target.value))}
                   className="appearance-none px-2 py-1 text-xs rounded-lg border transition-colors"
@@ -379,7 +382,7 @@ export default function AncillaryPage() {
                     </option>
                   ))}
                 </select>
-                {regStates && (
+                {regStates?.total_intervals != null && (
                   <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {regStates.total_intervals.toLocaleString()} intervals
                   </span>

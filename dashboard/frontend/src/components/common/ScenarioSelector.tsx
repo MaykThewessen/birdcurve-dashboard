@@ -28,6 +28,9 @@ export default function ScenarioSelector({ className = '' }: ScenarioSelectorPro
   return (
     <div className={`relative ${className}`}>
       <select
+        id="scenario-selector"
+        name="scenario"
+        aria-label="Forecast scenario"
         value={scenario}
         onChange={(e) => setScenario(e.target.value)}
         className="appearance-none pl-3 pr-8 py-1.5 text-xs rounded-lg border transition-colors cursor-pointer"
