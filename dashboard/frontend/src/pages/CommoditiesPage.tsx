@@ -232,8 +232,10 @@ export default function CommoditiesPage() {
 
       {/* Summary note */}
       <p className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
-        Gas marginal cost = (Gas TTF + CO2 * 0.202) / 0.50 (CCGT, 50% efficiency, 202 kg CO2/MWh_th).
-        Coal marginal cost = (Coal_USD / 6.978 / EUR_USD + CO2 * 0.335) / 0.46 (46% efficiency,
+        Gas marginal cost = (Gas TTF · 1.108 + CO2 · 0.202) / 0.58 — TTF is per MWh_HHV but
+        plant efficiency is reported on LHV; the 1.108 factor converts HHV→LHV before applying
+        58% LHV efficiency and 202 kg CO2/MWh_LHV (IPCC NCV).
+        Coal marginal cost = (Coal_USD / 6.978 / EUR_USD + CO2 · 0.335) / 0.46 (46% efficiency,
         335 kg CO2/MWh_th, daily EUR/USD applied so the result is in EUR/MWh).
       </p>
     </div>
