@@ -38,6 +38,11 @@ function fmtEur(v: number | undefined): string {
 export default function AncillaryPage() {
   const { scenario, dateRange } = useFilterStore()
   const [selectedYear, setSelectedYear] = useState<number>(2025)
+  // BESS revenue stacking is misleading by default — the same MW can't
+  // simultaneously earn aFRR cap, FCR cap, AND aFRR energy. 'split-mw'
+  // assumes the operator co-deploys (the upper-bound), 'best-market'
+  // shows the realistic single-strategy revenue per year.
+  const [revenueMode, setRevenueMode] = useState<'split-mw' | 'best-market'>('split-mw')
 
   // Capacity prices come from DuckDB historical first; the scenario-driven
   // forecast file only fills in the future tail. So this query runs even
@@ -195,7 +200,7 @@ export default function AncillaryPage() {
       {
         name: 'aFRR Capacity',
         type: 'bar',
-        stack: 'revenue',
+        stack: revenueMode === 'split-mw' ? 'revenue' : undefined,
         barMaxWidth: 20,
         data: revenueData?.afrr_cap_revenue ?? [],
         itemStyle: { color: '#22D3EE' },
@@ -203,7 +208,7 @@ export default function AncillaryPage() {
       {
         name: 'FCR Capacity',
         type: 'bar',
-        stack: 'revenue',
+        stack: revenueMode === 'split-mw' ? 'revenue' : undefined,
         barMaxWidth: 20,
         data: revenueData?.fcr_cap_revenue ?? [],
         itemStyle: { color: '#A78BFA' },
@@ -211,7 +216,7 @@ export default function AncillaryPage() {
       {
         name: 'aFRR Energy',
         type: 'bar',
-        stack: 'revenue',
+        stack: revenueMode === 'split-mw' ? 'revenue' : undefined,
         barMaxWidth: 20,
         data: revenueData?.afrr_energy_revenue ?? [],
         itemStyle: { color: '#4ADE80' },
@@ -233,7 +238,7 @@ export default function AncillaryPage() {
       },
     },
     grid: { top: 48, right: 20, bottom: 56, left: 70, containLabel: true },
-  }), [revenueData])
+  }), [revenueData, revenueMode])
 
   // Regulation states donut chart
   const donutData = useMemo(() =>
@@ -413,7 +418,11 @@ export default function AncillaryPage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <ChartWrapper
               title="Annual Ancillary Revenue"
-              subtitle="k€/MW/year — stacked by source"
+              subtitle={
+                revenueMode === 'split-mw'
+                  ? 'k€/MW/y — stacked, assumes the operator splits MW across all three products'
+                  : 'k€/MW/y — side-by-side, single-product strategy per MW'
+              }
               loading={revenueLoading}
               error={revenueError as Error | null}
               height={320}
@@ -427,7 +436,31 @@ export default function AncillaryPage() {
               }
               exportFilename={`ancillary_revenue_${scenario}`}
             >
-              <EChartsWrapper option={revenueOption} height={320} />
+              <div className="flex items-center justify-end gap-1 mb-2">
+                {(['split-mw', 'best-market'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setRevenueMode(mode)}
+                    className="px-2 py-0.5 text-[10px] rounded-full border transition-colors"
+                    style={{
+                      fontFamily: 'JetBrains Mono, monospace',
+                      borderColor:
+                        revenueMode === mode ? 'var(--accent-copper)' : 'var(--border-default)',
+                      color: revenueMode === mode ? 'var(--accent-copper)' : 'var(--text-muted)',
+                      backgroundColor:
+                        revenueMode === mode ? 'rgba(212,165,116,0.10)' : 'transparent',
+                    }}
+                    title={
+                      mode === 'split-mw'
+                        ? 'Stacked — assumes the same MW earns all three products simultaneously (upper bound)'
+                        : 'Side-by-side — realistic single-product per MW (mutually exclusive capacity reservation)'
+                    }
+                  >
+                    {mode === 'split-mw' ? 'Split MW' : 'Best market'}
+                  </button>
+                ))}
+              </div>
+              <EChartsWrapper option={revenueOption} height={290} />
             </ChartWrapper>
 
             <ChartWrapper

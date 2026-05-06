@@ -33,6 +33,9 @@ async function fetchJson<T>(
 export const api = {
   health: () => fetchJson<import('../types/api').HealthResponse>(`${BASE}/health`),
 
+  dataStatus: () =>
+    fetchJson<import('../types/api').DataStatusResponse>(`${BASE}/data-status`),
+
   commodities: (start: string, end: string, includeMarginal = false, maxPoints = 5000) =>
     fetchJson<import('../types/api').CommoditiesResponse>(`${BASE}/commodities`, {
       start,

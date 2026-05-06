@@ -44,7 +44,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from .routers import health, commodities, electricity, ml, scenarios, forecast, ancillary  # noqa: E402
+from .routers import (  # noqa: E402
+    health, commodities, electricity, ml, scenarios, forecast, ancillary, data_status,
+)
 
 app.include_router(health.router, prefix="/api")
 app.include_router(commodities.router, prefix="/api")
@@ -53,3 +55,4 @@ app.include_router(ml.router, prefix="/api")
 app.include_router(scenarios.router, prefix="/api")
 app.include_router(forecast.router, prefix="/api")
 app.include_router(ancillary.router, prefix="/api")
+app.include_router(data_status.router, prefix="/api")

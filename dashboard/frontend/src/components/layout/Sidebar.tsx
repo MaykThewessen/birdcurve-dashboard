@@ -14,6 +14,7 @@ import {
   Bird,
 } from 'lucide-react'
 import { useFilterStore } from '../../store/filterStore'
+import DataFreshnessPill from '../common/DataFreshnessPill'
 
 const NAV_ITEMS = [
   { icon: TrendingUp, label: 'Commodities', path: '/commodities' },
@@ -135,6 +136,14 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Data freshness — surfaces ingestion lag from /api/data-status. */}
+      <div
+        className="px-2 py-2 border-t"
+        style={{ borderColor: 'var(--border-default)' }}
+      >
+        <DataFreshnessPill expanded={expanded} />
+      </div>
 
       {/* Theme toggle */}
       <div

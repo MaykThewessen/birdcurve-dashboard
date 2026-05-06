@@ -31,8 +31,15 @@ def _records_from_df(df: pd.DataFrame) -> list[dict]:
     Note: `.astype(object)` is required — assigning None into a
     float64 column would otherwise be coerced back to NaN.
     """
-    naive_dt_cols = df.select_dtypes(include=["datetime64[ns]"]).columns
-    if len(naive_dt_cols):
+    # Detect tz-naive datetime columns regardless of unit ([ns], [us], [ms]).
+    # `select_dtypes(include=["datetime64[ns]"])` happens to match [us] on
+    # pandas 3.x but breaks on older pandas / pyarrow paths, silently
+    # reverting all the DST-collapse fixes downstream.
+    naive_dt_cols = [
+        c for c in df.columns
+        if pd.api.types.is_datetime64_any_dtype(df[c]) and df[c].dt.tz is None
+    ]
+    if naive_dt_cols:
         df = df.assign(**{c: df[c].dt.tz_localize("UTC") for c in naive_dt_cols})
     return df.astype(object).where(pd.notna(df), None).to_dict(orient="records")
 
@@ -272,26 +279,26 @@ class DataEngine:
         else:
             candidates = tuple(datetime_col)
 
+        # Register either source as a pandas-backed temp table so the SQL
+        # below never f-strings a file path. Eliminates the residual SQL-
+        # injection vector if `filename_pattern` ever comes from user input
+        # (today all callers pass literals, but defence in depth is cheap).
         if feather_matches:
             df = pd.read_feather(feather_matches[0])
-            actual_col = next((c for c in candidates if c in df.columns), None)
-            if actual_col is None:
-                return []
-            table_name = f"_tmp_{filename_pattern.replace('-', '_').replace(' ', '_').replace('*', 'x')}"
-            self._conn.register(table_name, df)
-            read_fn = table_name
         elif csv_matches:
-            file_path = str(csv_matches[0])
-            # Peek at the CSV header so we know the actual datetime column
-            # without parsing the whole file.
-            with open(file_path) as fh:
-                header = fh.readline().rstrip("\n").split(",")
-            actual_col = next((c for c in candidates if c in header), None)
-            if actual_col is None:
-                return []
-            read_fn = f"read_csv_auto('{file_path}')"
+            df = pd.read_csv(csv_matches[0])
         else:
             return []
+
+        actual_col = next((c for c in candidates if c in df.columns), None)
+        if actual_col is None:
+            return []
+
+        # Use a UUID-based table name so concurrent requests can't collide.
+        import uuid
+        table_name = f"_tmp_{uuid.uuid4().hex[:12]}"
+        self._conn.register(table_name, df)
+        read_fn = table_name
 
         where_parts = []
         params = []
@@ -305,7 +312,14 @@ class DataEngine:
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
         sql = f'SELECT * FROM {read_fn} {where_clause} ORDER BY "{actual_col}"'
-        return _records_from_df(self._conn.execute(sql, params).fetchdf())
+        try:
+            return _records_from_df(self._conn.execute(sql, params).fetchdf())
+        finally:
+            # Don't leak registered temp tables across requests.
+            try:
+                self._conn.unregister(table_name)
+            except Exception:
+                pass
 
     def close(self):
         self._conn.close()

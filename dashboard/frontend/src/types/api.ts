@@ -183,6 +183,22 @@ export interface AncillaryCapacityResponse {
   data_source?: ('historical' | 'forecast')[]
 }
 
+export interface DataStatusSource {
+  table: string
+  source: string
+  latest_data_utc: string
+  last_ingest_utc: string | null
+  lag_hours: number
+  rows_total: number
+  status: 'fresh' | 'warn' | 'stale'
+}
+
+export interface DataStatusResponse {
+  as_of_utc: string
+  sources: DataStatusSource[]
+  summary: { fresh: number; warn: number; stale: number }
+}
+
 export interface ImbalancePricesResponse {
   timestamp: string[]
   afrr_energy_up: (number | null)[]

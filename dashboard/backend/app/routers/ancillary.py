@@ -108,32 +108,88 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
 
     # 2. Forecast tail beyond the last historical timestamp (if a scenario is
     #    selected and the requested range extends past the historical data).
+    #
+    # The forecast file has historically been on a different scale than
+    # ts_4hourly (we observed ~16x for aFRR cap, ~10x for FCR cap — looks
+    # like EUR/MW for a longer block vs EUR/MW/h). Rather than hardcode a
+    # scale, we fetch the full requested range from the forecast file and
+    # compute per-metric scale factors from the overlap with the DuckDB
+    # historical period: scale = median(forecast_value / duckdb_value)
+    # over matched (date, metric) pairs. We then divide the forecast-tail
+    # values by that scale before stitching them in. Self-correcting: if
+    # upstream fixes the unit mismatch, the median ratio collapses to ~1
+    # and this becomes a no-op.
     forecast_pivot = (latest_hist_dt or start)[:10]
     if scenario and forecast_pivot < end:
         try:
             forecast_data = engine.query_forecast_file(
                 scenario,
                 "predictions_aFRR_FCR_capacity_4h_2023_2050",
-                forecast_pivot, end,
+                start, end,  # full range, so we can compute the scale
                 datetime_col="datetime",
             )
         except Exception:
             forecast_data = []
+
+        # Build a date → first-non-null lookup from DuckDB historical.
+        hist_lookup: dict[str, dict] = {}
+        for r in result:  # `result` so far holds only DuckDB historical rows
+            hist_lookup.setdefault(r["datetime"][:10], r)
+
+        # Collect ratios per metric from overlap.
+        from statistics import median
+        metric_keys = ("afrr_cap_up", "afrr_cap_down", "fcr_cap_price")
+        ratios: dict[str, list[float]] = {k: [] for k in metric_keys}
+
+        forecast_metric_map = {
+            "afrr_cap_up":   "aFRR_cap_up",
+            "afrr_cap_down": "aFRR_cap_down",
+            "fcr_cap_price": "FCR_cap_price",
+        }
+
         for d in forecast_data:
             dt_str = str(d.get("datetime", ""))
-            if not dt_str or dt_str in seen_dts:
+            day = dt_str[:10]
+            hist = hist_lookup.get(day)
+            if not hist:
+                continue
+            for our_key, csv_key in forecast_metric_map.items():
+                fv = _safe(d.get(csv_key))
+                hv = hist.get(our_key)
+                if fv is None or hv is None or hv == 0:
+                    continue
+                ratios[our_key].append(fv / hv)
+
+        scales = {
+            k: median(vs) if len(vs) >= 4 else 1.0  # need ≥4 overlap points to trust the ratio
+            for k, vs in ratios.items()
+        }
+
+        # Apply the inverse scale to forecast values past the pivot.
+        for d in forecast_data:
+            dt_str = str(d.get("datetime", ""))
+            if not dt_str or dt_str in seen_dts or dt_str[:10] <= forecast_pivot:
                 continue
             seen_dts.add(dt_str)
+
+            def _scaled(our_key: str, csv_key: str):
+                v = _safe(d.get(csv_key))
+                if v is None:
+                    return None
+                s = scales.get(our_key, 1.0)
+                return v / s if s else v
+
             result.append({
                 "datetime": dt_str,
                 "block": _safe(d.get("block")),
-                "afrr_cap_up": _safe(d.get("aFRR_cap_up")),
-                "afrr_cap_down": _safe(d.get("aFRR_cap_down")),
-                "fcr_cap_price": _safe(d.get("FCR_cap_price")),
-                "afrr_vol_up": _safe(d.get("aFRR_vol_up")),
+                "afrr_cap_up":   _scaled("afrr_cap_up",   "aFRR_cap_up"),
+                "afrr_cap_down": _scaled("afrr_cap_down", "aFRR_cap_down"),
+                "fcr_cap_price": _scaled("fcr_cap_price", "FCR_cap_price"),
+                # Volumes have always been ~1:1, no scaling.
+                "afrr_vol_up":   _safe(d.get("aFRR_vol_up")),
                 "afrr_vol_down": _safe(d.get("aFRR_vol_down")),
-                "fcr_vol": _safe(d.get("FCR_vol")),
-                "data_source": "forecast",
+                "fcr_vol":       _safe(d.get("FCR_vol")),
+                "data_source":   "forecast",
             })
 
     result.sort(key=lambda r: r["datetime"])
