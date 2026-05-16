@@ -2,7 +2,7 @@
 
 ## Backend — FastAPI + DuckDB
 
-The backend is a single FastAPI app (`dashboard/backend/app/main.py`) wired to a read-only DuckDB file via `DataEngine` (see [API reference](api/index.md)). Each page on the frontend maps to one router under `app/routers/`:
+The backend is a single FastAPI app (`dashboard/backend/app/main.py`) wired to a read-only DuckDB file via `DataEngine`. Each page on the frontend maps to one router under `app/routers/`:
 
 | Page | Router | Responsibility |
 |---|---|---|
@@ -13,9 +13,11 @@ The backend is a single FastAPI app (`dashboard/backend/app/main.py`) wired to a
 | Ancillary | `routers/ancillary.py` | aFRR/mFRR capacity & energy |
 | Scenarios | `routers/scenarios.py` | Long-run capacity & revenue scenarios |
 
+See the [API reference](reference/index.md) for full per-module documentation.
+
 ### Server-side downsampling
 
-Every chart payload runs through LTTB (`app.downsampling`) so the browser never receives more than a few thousand points — extremes (negative-price spikes, ramp events) survive the downsample.
+Every chart payload runs through LTTB (`app/downsampling.py`) so the browser never receives more than a few thousand points — extremes (negative-price spikes, ramp events) survive the downsample.
 
 ### Time handling
 
