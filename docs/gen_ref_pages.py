@@ -37,8 +37,6 @@ for path in sorted(PKG_ROOT.rglob("*.py")):
         ident = ".".join(parts)
         fd.write(f"# `{ident}`\n\n::: {ident}\n")
 
-    mkdocs_gen_files.set_edit_path(full_doc_path, path.relative_to(REPO_ROOT))
-
 # Landing page for the reference section so `reference/index.md` resolves.
 with mkdocs_gen_files.open("reference/index.md", "w") as fd:
     fd.write(

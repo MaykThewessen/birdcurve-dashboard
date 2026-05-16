@@ -36,6 +36,7 @@ Built with **MkDocs Material** + **mkdocstrings**. Two deploy targets are config
 
 ```bash
 pip install -r docs/requirements.txt
-mkdocs serve           # live-reload dev server at :8001
-mkdocs build --strict  # production build to ./site, fails on warnings
+# Backend dev server already uses :8000 — bind docs to :8001 to avoid clashing.
+mkdocs serve -a 127.0.0.1:8001    # live-reload dev server
+mkdocs build --strict             # production build to ./site, fails on warnings
 ```

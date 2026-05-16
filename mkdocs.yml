@@ -3,7 +3,9 @@ site_description: Interactive dashboard for Dutch electricity market data and Bi
 site_url: https://maykthewessen.github.io/birdcurve-dashboard/
 repo_url: https://github.com/MaykThewessen/birdcurve-dashboard
 repo_name: MaykThewessen/birdcurve-dashboard
-edit_uri: edit/main/docs/
+# edit_uri intentionally unset: mkdocs-gen-files virtual pages have no real
+# file to edit, so `content.action.edit` would 404 on the reference section.
+# Source for generated pages is reachable via mkdocstrings' show_source.
 
 docs_dir: docs
 site_dir: site
@@ -32,7 +34,6 @@ theme:
     - search.share
     - content.code.copy
     - content.code.annotate
-    - content.action.edit
     - content.tabs.link
     - toc.follow
   palette:
@@ -52,7 +53,6 @@ theme:
         name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
-    edit: material/pencil
 
 plugins:
   - search
@@ -93,9 +93,6 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
-  - pymdownx.snippets:
-      check_paths: true
-      base_path: ["."]
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span

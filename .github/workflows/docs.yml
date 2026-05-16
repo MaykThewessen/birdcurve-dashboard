@@ -32,8 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # mkdocstrings + future git-revision plugins benefit from full history
+        # No fetch-depth: 0 — neither mkdocstrings nor any plugin we ship
+        # reads git history. Add it back only when wiring a git-revision plugin.
 
       - uses: actions/setup-python@v5
         with:
