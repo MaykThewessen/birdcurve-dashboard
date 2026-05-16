@@ -26,3 +26,6 @@ data/
 model_results/
 .env
 .env.local
+# Sphinx
+docs/sphinx/_build/
+docs/sphinx/api/
