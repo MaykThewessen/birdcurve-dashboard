@@ -68,7 +68,9 @@ jobs:
 
   deploy:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Deploy on push-to-main and on manual workflow_dispatch from main.
+    # PRs only upload an artifact and skip deploy.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
