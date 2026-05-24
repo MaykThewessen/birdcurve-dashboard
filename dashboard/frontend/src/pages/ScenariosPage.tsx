@@ -6,12 +6,7 @@ import ScenarioSelector from '../components/common/ScenarioSelector'
 import ChartWrapper from '../components/common/ChartWrapper'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
-
-const AXIS_LABEL_STYLE = {
-  color: '#8896B3',
-  fontFamily: 'JetBrains Mono, monospace',
-  fontSize: 11,
-}
+import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
 
 export default function ScenariosPage() {
   const { scenario } = useFilterStore()

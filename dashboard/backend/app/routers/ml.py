@@ -188,20 +188,10 @@ async def get_correlation_matrix(request: Request):
     return await run_in_threadpool(_get_correlation_matrix_sync, engine)
 
 
-def _get_price_distributions_forecast_sync(engine, scenario: str):
-    """Load forecast feather + compute KDE — heavy sync work."""
-    import pandas as pd
+def _kde_distributions_from_df(df, source_label: str) -> list[dict]:
+    """Compute per-year KDE + quantile distributions from a df with 'year' and 'value' columns."""
     import numpy as np
     from scipy.stats import gaussian_kde
-
-    data = engine.query_forecast_file(
-        scenario, "predictions_DA_hourly_*", datetime_col="datetime_UTC"
-    )
-    df = pd.DataFrame(data)
-    if df.empty:
-        return {"years": [], "distributions": []}
-    df["year"] = pd.to_datetime(df["datetime_UTC"]).dt.year
-    df["value"] = df["Price_pred_ensemble"]
 
     distributions = []
     for year, group in df.groupby("year"):
@@ -213,7 +203,7 @@ def _get_price_distributions_forecast_sync(engine, scenario: str):
             x_range = np.linspace(vals.min() - 20, vals.max() + 20, 100)
             kde_y = kde(x_range).tolist()
         except Exception:
-            logger.exception("KDE failed for forecast distributions year=%s n=%d", year, len(vals))
+            logger.exception("KDE failed for %s distributions year=%s n=%d", source_label, year, len(vals))
             x_range = []
             kde_y = []
         distributions.append({
@@ -228,7 +218,23 @@ def _get_price_distributions_forecast_sync(engine, scenario: str):
             "kde_x": [round(float(x), 1) for x in x_range] if len(x_range) > 0 else [],
             "kde_y": [round(float(y), 4) for y in kde_y],
         })
+    return distributions
 
+
+def _get_price_distributions_forecast_sync(engine, scenario: str):
+    """Load forecast feather + compute KDE — heavy sync work."""
+    import pandas as pd
+
+    data = engine.query_forecast_file(
+        scenario, "predictions_DA_hourly_*", datetime_col="datetime_UTC"
+    )
+    df = pd.DataFrame(data)
+    if df.empty:
+        return {"years": [], "distributions": []}
+    df["year"] = pd.to_datetime(df["datetime_UTC"]).dt.year
+    df["value"] = df["Price_pred_ensemble"]
+
+    distributions = _kde_distributions_from_df(df, "forecast")
     return {
         "years": [d["year"] for d in distributions],
         "distributions": distributions,
@@ -243,8 +249,6 @@ async def get_price_distributions(
 ):
     """Price distribution statistics by year for violin plots."""
     import pandas as pd
-    import numpy as np
-    from scipy.stats import gaussian_kde
 
     engine = request.app.state.engine
 
@@ -268,40 +272,11 @@ async def get_price_distributions(
     """
     rows = engine.query(sql)
     df = pd.DataFrame(rows)
-    if not df.empty:
-        df["year"] = df["year"].astype(int)
-
     if df.empty:
         return {"years": [], "distributions": []}
+    df["year"] = df["year"].astype(int)
 
-    distributions = []
-    for year, group in df.groupby("year"):
-        vals = group["value"].dropna()
-        if len(vals) < 10:
-            continue
-
-        try:
-            kde = gaussian_kde(vals, bw_method=0.3)
-            x_range = np.linspace(vals.min() - 20, vals.max() + 20, 100)
-            kde_y = kde(x_range).tolist()
-        except Exception:
-            logger.exception("KDE failed for historical distributions year=%s n=%d", year, len(vals))
-            x_range = []
-            kde_y = []
-
-        distributions.append({
-            "year": int(year),
-            "min": round(float(vals.min()), 1),
-            "q1": round(float(vals.quantile(0.25)), 1),
-            "median": round(float(vals.median()), 1),
-            "q3": round(float(vals.quantile(0.75)), 1),
-            "max": round(float(vals.max()), 1),
-            "mean": round(float(vals.mean()), 1),
-            "std": round(float(vals.std()), 1),
-            "kde_x": [round(float(x), 1) for x in x_range] if len(x_range) > 0 else [],
-            "kde_y": [round(float(y), 4) for y in kde_y],
-        })
-
+    distributions = _kde_distributions_from_df(df, "historical")
     return {
         "years": [d["year"] for d in distributions],
         "distributions": distributions,

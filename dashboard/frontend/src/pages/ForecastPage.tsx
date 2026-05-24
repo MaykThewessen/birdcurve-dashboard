@@ -10,14 +10,9 @@ import ChartWrapper from '../components/common/ChartWrapper'
 import TradingViewChart, { type TradingViewSeries } from '../components/charts/TradingViewChart'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
+import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
 
 const TARGET_YEARS = [2025, 2030, 2040, 2050]
-
-const AXIS_LABEL_STYLE = {
-  color: '#8896B3',
-  fontFamily: 'JetBrains Mono, monospace',
-  fontSize: 11,
-}
 
 function fmtEur(v: number | undefined): string {
   if (v == null || isNaN(v)) return '—'

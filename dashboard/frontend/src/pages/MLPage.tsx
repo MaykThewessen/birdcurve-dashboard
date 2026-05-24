@@ -5,6 +5,7 @@ import KpiCard from '../components/common/KpiCard'
 import ChartWrapper from '../components/common/ChartWrapper'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
+import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
 
 // Price band color by name
 const BAND_COLORS: Record<string, string> = {
@@ -73,7 +74,7 @@ export default function MLPage() {
         name: 'Actual Price (EUR/MWh)',
         nameLocation: 'middle',
         nameGap: 30,
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        axisLabel: AXIS_LABEL_STYLE,
         axisLine: { lineStyle: { color: '#2A3654' } },
         splitLine: { lineStyle: { color: '#1A2540' } },
       },
@@ -82,7 +83,7 @@ export default function MLPage() {
         name: 'Predicted Price (EUR/MWh)',
         nameLocation: 'middle',
         nameGap: 55,
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        axisLabel: AXIS_LABEL_STYLE,
         axisLine: { lineStyle: { color: '#2A3654' } },
         splitLine: { lineStyle: { color: '#1A2540' } },
       },
@@ -224,7 +225,7 @@ export default function MLPage() {
         name: 'Prediction Error (EUR/MWh)',
         nameLocation: 'middle',
         nameGap: 30,
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        axisLabel: AXIS_LABEL_STYLE,
         axisLine: { lineStyle: { color: '#2A3654' } },
         splitLine: { lineStyle: { color: '#1A2540' } },
       },
@@ -233,7 +234,7 @@ export default function MLPage() {
         name: 'Frequency',
         nameLocation: 'middle',
         nameGap: 50,
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        axisLabel: AXIS_LABEL_STYLE,
         axisLine: { lineStyle: { color: '#2A3654' } },
         splitLine: { lineStyle: { color: '#1A2540' } },
       },
