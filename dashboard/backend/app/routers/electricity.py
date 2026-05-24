@@ -277,7 +277,8 @@ async def get_heatmap(
     for r in rows:
         h = int(r["hour"])
         m = int(r["month"]) - 1
-        matrix[h][m] = round(r["avg_price"], 1)
+        if 0 <= h < 24 and 0 <= m < 12:
+            matrix[h][m] = round(r["avg_price"], 1)
 
     add_cache_headers(response, _year_end_iso(year), _today_iso())
     return {

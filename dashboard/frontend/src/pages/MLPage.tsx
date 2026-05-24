@@ -52,6 +52,7 @@ export default function MLPage() {
     })
 
     const allVals = [...actual, ...predicted]
+    if (!allVals.length) return {}
     const minV = Math.min(...allVals)
     const maxV = Math.max(...allVals)
 
