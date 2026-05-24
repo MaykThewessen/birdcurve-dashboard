@@ -288,7 +288,7 @@ export default function ForecastPage() {
     forecastData?.datetime.map((dt, i) => ({
       datetime: dt,
       price_actual: forecastData.price_actual[i] ?? '',
-      price_predicted: forecastData.price_predicted[i],
+      price_predicted: forecastData.price_predicted[i] ?? '',
     })) ?? []
 
   const noScenario = !scenario

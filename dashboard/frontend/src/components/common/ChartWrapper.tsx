@@ -80,7 +80,8 @@ export default function ChartWrapper({
         <div className="flex items-center gap-1">
           <button
             onClick={() => containerRef.current && captureCanvas(containerRef.current, exportFilename)}
-            className="p-1.5 rounded transition-colors"
+            disabled={loading}
+            className="p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title="Export PNG"
             style={{ color: 'var(--text-muted)' }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent-copper)')}
