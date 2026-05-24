@@ -1,8 +1,9 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { UTCTimestamp } from 'lightweight-charts'
 import { api } from '../api/client'
 import { useFilterStore } from '../store/filterStore'
+import { useChartRange } from '../hooks/useChartRange'
 import KpiCard from '../components/common/KpiCard'
 import ScenarioSelector from '../components/common/ScenarioSelector'
 import DateRangePicker from '../components/common/DateRangePicker'
@@ -35,34 +36,7 @@ export default function ForecastPage() {
   // chartRange follows dateRange but lets chart-zoom override it so the
   // backend can refetch at higher resolution. See ElectricityPage for the
   // same pattern + during-render reset.
-  const [chartRange, setChartRange] = useState(dateRange)
-  const [trackedDateRange, setTrackedDateRange] = useState(dateRange)
-  if (
-    trackedDateRange.start !== dateRange.start ||
-    trackedDateRange.end !== dateRange.end
-  ) {
-    setTrackedDateRange(dateRange)
-    setChartRange(dateRange)
-  }
-  // Only refetch on real zoom-in or pan-beyond-envelope. See ElectricityPage
-  // for the same guard — without it, programmatic range events from setData
-  // form a refetch loop that hangs the page.
-  const handleVisibleRangeChange = useCallback((start: string, end: string) => {
-    setChartRange((prev) => {
-      if (prev.start === start && prev.end === end) return prev
-      const newStart = Date.parse(start)
-      const newEnd = Date.parse(end)
-      const prevStart = Date.parse(prev.start)
-      const prevEnd = Date.parse(prev.end)
-      if (!Number.isFinite(newStart) || !Number.isFinite(newEnd)) return prev
-      const newSpan = newEnd - newStart
-      const prevSpan = prevEnd - prevStart
-      const zoomedIn = newSpan < prevSpan * 0.7
-      const pannedOut =
-        newStart < prevStart - prevSpan * 0.1 || newEnd > prevEnd + prevSpan * 0.1
-      return zoomedIn || pannedOut ? { start, end } : prev
-    })
-  }, [])
+  const { chartRange, handleVisibleRangeChange } = useChartRange(dateRange)
 
   const { data: statsData, isLoading: statsLoading, error: statsError } = useQuery({
     queryKey: ['annual-stats', scenario],
