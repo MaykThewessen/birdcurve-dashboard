@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { subDays, format } from 'date-fns'
 import { api } from '../api/client'
 import { useFilterStore } from '../store/filterStore'
+import { useChartRange } from '../hooks/useChartRange'
 import KpiCard from '../components/common/KpiCard'
 import DateRangePicker from '../components/common/DateRangePicker'
 import ChartWrapper from '../components/common/ChartWrapper'
@@ -89,35 +90,7 @@ export default function ElectricityPage() {
   // Reset zoom-tracked range when the global dateRange changes. Uses the
   // during-render reset pattern (React 19 / react-hooks/set-state-in-effect
   // disallows useEffect(() => setX(prop)).
-  const [chartRange, setChartRange] = useState(dateRange)
-  const [trackedDateRange, setTrackedDateRange] = useState(dateRange)
-  if (
-    trackedDateRange.start !== dateRange.start ||
-    trackedDateRange.end !== dateRange.end
-  ) {
-    setTrackedDateRange(dateRange)
-    setChartRange(dateRange)
-  }
-  // Only refetch on a meaningful zoom-in (≥30% narrower) or a pan beyond
-  // the current envelope. Programmatic events from setData (which the
-  // chart fires on every data update) tend to mirror the existing range
-  // and are filtered out here as a second line of defence.
-  const handleVisibleRangeChange = useCallback((start: string, end: string) => {
-    setChartRange((prev) => {
-      if (prev.start === start && prev.end === end) return prev
-      const newStart = Date.parse(start)
-      const newEnd = Date.parse(end)
-      const prevStart = Date.parse(prev.start)
-      const prevEnd = Date.parse(prev.end)
-      if (!Number.isFinite(newStart) || !Number.isFinite(newEnd)) return prev
-      const newSpan = newEnd - newStart
-      const prevSpan = prevEnd - prevStart
-      const zoomedIn = newSpan < prevSpan * 0.7
-      const pannedOut =
-        newStart < prevStart - prevSpan * 0.1 || newEnd > prevEnd + prevSpan * 0.1
-      return zoomedIn || pannedOut ? { start, end } : prev
-    })
-  }, [])
+  const { chartRange, handleVisibleRangeChange } = useChartRange(dateRange)
 
   // KPI data: last 30 days of electricity data
   const kpiStart = format(subDays(new Date(), 30), 'yyyy-MM-dd')
