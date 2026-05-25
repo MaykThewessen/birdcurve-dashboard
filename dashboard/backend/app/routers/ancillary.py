@@ -1,6 +1,8 @@
 """Ancillary services: aFRR/FCR capacity prices, volumes, revenue."""
 from __future__ import annotations
 
+import logging
+import math
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request, Response
@@ -8,6 +10,8 @@ from fastapi.concurrency import run_in_threadpool
 
 from ..downsampling import lttb_downsample
 from ._helpers import get_engine_and_dir, add_cache_headers
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ancillary", tags=["ancillary"])
 
@@ -18,7 +22,6 @@ def _today_iso() -> str:
 
 def _safe(v):
     """Convert NaN/NA pandas values to None for JSON serialization."""
-    import math
     if v is None:
         return None
     try:
@@ -160,10 +163,16 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
                     continue
                 ratios[our_key].append(fv / hv)
 
-        scales = {
-            k: median(vs) if len(vs) >= 4 else 1.0  # need ≥4 overlap points to trust the ratio
-            for k, vs in ratios.items()
-        }
+        scales = {}
+        for k, vs in ratios.items():
+            if len(vs) >= 4:
+                scales[k] = median(vs)
+            else:
+                scales[k] = 1.0
+                logger.warning(
+                    "ancillary capacity scale ratio unreliable for %s: only %d overlap points, defaulting to 1.0",
+                    k, len(vs),
+                )
 
         # Apply the inverse scale to forecast values past the pivot.
         for d in forecast_data:
