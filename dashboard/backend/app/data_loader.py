@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Any
 
 import duckdb
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from .config import Settings
 
@@ -164,6 +167,7 @@ class DataEngine:
             )
             return True
         except Exception:
+            logger.warning("Failed to register EUR/USD sidecar from %s", csv, exc_info=True)
             return False
 
     @property
@@ -192,6 +196,7 @@ class DataEngine:
             )
             return True
         except Exception:
+            logger.warning("Failed to register Coal API2 sidecar from %s", csv, exc_info=True)
             return False
 
     @property
