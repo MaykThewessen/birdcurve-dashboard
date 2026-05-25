@@ -11,6 +11,7 @@ import TradingViewChart, { type TradingViewSeries } from '../components/charts/T
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { UTCTimestamp } from 'lightweight-charts'
 import type { EChartsOption } from 'echarts'
+import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 2018 + 1 }, (_, i) => 2018 + i)
@@ -238,7 +239,7 @@ export default function ElectricityPage() {
         data: years.map(String).reverse(),  // newest first in legend
         top: 0,
         right: 16,
-        textStyle: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        textStyle: AXIS_LABEL_STYLE,
         itemWidth: 16,
         itemHeight: 2,
       },
@@ -259,7 +260,7 @@ export default function ElectricityPage() {
         nameLocation: 'middle',
         nameGap: 50,
         axisLine: { lineStyle: { color: '#2A3654' } },
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+        axisLabel: AXIS_LABEL_STYLE,
         splitLine: { lineStyle: { color: '#1A2540' } },
       },
       tooltip: {

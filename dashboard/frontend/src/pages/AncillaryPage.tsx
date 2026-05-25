@@ -10,12 +10,7 @@ import ChartWrapper from '../components/common/ChartWrapper'
 import TradingViewChart, { type TradingViewSeries } from '../components/charts/TradingViewChart'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
-
-const AXIS_LABEL_STYLE = {
-  color: '#8896B3',
-  fontFamily: 'JetBrains Mono, monospace',
-  fontSize: 11,
-}
+import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
 
 // State labels and colors for regulation donut
 const STATE_CONFIG: Record<number, { label: string; color: string }> = {
