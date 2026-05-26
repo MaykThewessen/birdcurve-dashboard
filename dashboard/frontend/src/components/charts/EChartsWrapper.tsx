@@ -29,6 +29,7 @@ import { LegacyGridContainLabel } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import { useMemo } from 'react'
+import { CHART_COLORS } from '../../lib/echarts-theme'
 
 // Register only the parts of ECharts that the dashboard actually uses,
 // trimming the bundle from the full ~1.1 MB monolith down to ~650 KB.
@@ -62,13 +63,13 @@ interface EChartsWrapperProps {
 const DARK_THEME_OVERRIDES: Partial<EChartsOption> = {
   backgroundColor: 'transparent',
   tooltip: {
-    backgroundColor: '#1A2540',
-    borderColor: '#2A3654',
+    backgroundColor: CHART_COLORS.grid,
+    borderColor: CHART_COLORS.border,
     textStyle: { color: '#E8ECF4', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 },
   },
   legend: {
-    textStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 12 },
-    inactiveColor: '#2A3654',
+    textStyle: { color: CHART_COLORS.muted, fontFamily: 'Outfit, sans-serif', fontSize: 12 },
+    inactiveColor: CHART_COLORS.border,
   },
   grid: {
     top: 40,
