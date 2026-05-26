@@ -2,9 +2,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { format, subDays } from 'date-fns'
 import Sidebar from './Sidebar'
-import { useFilterStore } from '../../store/filterStore'
-
-const DEFAULT_RANGE_DAYS = 60
+import { useFilterStore, DEFAULT_RANGE_DAYS } from '../../store/filterStore'
 
 const PAGE_LABELS: Record<string, string> = {
   '/commodities': 'Commodities',
