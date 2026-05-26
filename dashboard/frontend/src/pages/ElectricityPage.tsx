@@ -94,9 +94,8 @@ export default function ElectricityPage() {
   // disallows useEffect(() => setX(prop)).
   const { chartRange, handleVisibleRangeChange } = useChartRange(dateRange)
 
-  // KPI data: last 30 days of electricity data
-  const kpiStart = format(subDays(new Date(), 30), 'yyyy-MM-dd')
-  const kpiEnd = format(new Date(), 'yyyy-MM-dd')
+  const kpiStart = useMemo(() => format(subDays(new Date(), 30), 'yyyy-MM-dd'), [])
+  const kpiEnd = useMemo(() => format(new Date(), 'yyyy-MM-dd'), [])
 
   const { data: kpiHistData, isLoading: kpiLoading } = useQuery({
     queryKey: ['electricity-kpi-hist', kpiStart, kpiEnd],
