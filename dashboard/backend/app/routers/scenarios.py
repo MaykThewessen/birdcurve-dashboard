@@ -9,6 +9,20 @@ from fastapi.concurrency import run_in_threadpool
 router = APIRouter(prefix="/scenarios", tags=["scenarios"])
 
 
+def _int(v, default: int = 0) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float(v, default: float = 0.0) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 @router.get("/list")
 async def list_scenarios(request: Request):
     engine = request.app.state.engine
@@ -26,20 +40,23 @@ def _get_scenario_sync(fdir, scenario: str):
         for row in reader:
             rows.append(row)
 
+    # Filter rows missing a valid Year (blank rows at end of CSV are common).
+    rows = [r for r in rows if r.get("Year", "").strip()]
+
     return {
-        "years": [int(r["Year"]) for r in rows],
+        "years": [_int(r["Year"]) for r in rows],
         "scenario": rows[0].get("Scenario", scenario) if rows else scenario,
-        "solar_pv_gw": [float(r.get("Solar PV", 0)) for r in rows],
-        "wind_on_gw": [float(r.get("Wind On", 0)) for r in rows],
-        "wind_off_gw": [float(r.get("Wind Off", 0)) for r in rows],
-        "bess_gw": [float(r.get("BESS GW", 0)) for r in rows],
-        "bess_gwh": [float(r.get("BESS GWh", 0)) for r in rows],
-        "gas_price": [float(r.get("Gas TTF", 0)) for r in rows],
-        "co2_price": [float(r.get("EUA CO2", 0)) for r in rows],
-        "demand_twh": [float(r.get("TWh/y", 0)) for r in rows],
-        "power_base": [float(r.get("Power Base", 0)) for r in rows],
-        "must_run": [float(r.get("Must-Run", 0)) for r in rows],
-        "nuclear": [float(r.get("Nuclear", 0)) for r in rows],
+        "solar_pv_gw": [_float(r.get("Solar PV")) for r in rows],
+        "wind_on_gw": [_float(r.get("Wind On")) for r in rows],
+        "wind_off_gw": [_float(r.get("Wind Off")) for r in rows],
+        "bess_gw": [_float(r.get("BESS GW")) for r in rows],
+        "bess_gwh": [_float(r.get("BESS GWh")) for r in rows],
+        "gas_price": [_float(r.get("Gas TTF")) for r in rows],
+        "co2_price": [_float(r.get("EUA CO2")) for r in rows],
+        "demand_twh": [_float(r.get("TWh/y")) for r in rows],
+        "power_base": [_float(r.get("Power Base")) for r in rows],
+        "must_run": [_float(r.get("Must-Run")) for r in rows],
+        "nuclear": [_float(r.get("Nuclear")) for r in rows],
     }
 
 

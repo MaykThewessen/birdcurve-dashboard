@@ -1,7 +1,10 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
+import { format, subDays } from 'date-fns'
 import Sidebar from './Sidebar'
 import { useFilterStore } from '../../store/filterStore'
+
+const DEFAULT_RANGE_DAYS = 60
 
 const PAGE_LABELS: Record<string, string> = {
   '/commodities': 'Commodities',
@@ -14,7 +17,7 @@ const PAGE_LABELS: Record<string, string> = {
 
 export default function Layout() {
   const location = useLocation()
-  const { theme } = useFilterStore()
+  const { theme, dateRange, setDateRange } = useFilterStore()
   const pageLabel = PAGE_LABELS[location.pathname] ?? 'Dashboard'
 
   // Apply theme class to document
@@ -25,6 +28,20 @@ export default function Layout() {
     else if (theme === 'light') root.classList.add('light')
     // 'system' = no class, relies on prefers-color-scheme
   }, [theme])
+
+  // Slide the date range end to today when the tab regains focus after the
+  // day has turned (e.g. dashboard left open overnight). Only updates end —
+  // start is left alone so the window width the user last saw is preserved.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return
+      const today = format(new Date(), 'yyyy-MM-dd')
+      if (dateRange.end >= today) return
+      setDateRange(format(subDays(new Date(), DEFAULT_RANGE_DAYS), 'yyyy-MM-dd'), today)
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [dateRange.end, setDateRange])
 
   return (
     <div
