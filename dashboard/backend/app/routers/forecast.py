@@ -66,9 +66,11 @@ def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int, resolutio
 
     # Filter by range. Range strings are dates ('YYYY-MM-DD'); compare against
     # the tz-aware datetime column by promoting them to UTC tz-aware Timestamps.
+    # end_ts is exclusive (next-day midnight) so the entire end calendar day is
+    # included — using <= on midnight would only include the 00:00 row.
     start_ts = pd.Timestamp(start, tz="UTC")
-    end_ts = pd.Timestamp(end, tz="UTC")
-    mask = (df["datetime_UTC"] >= start_ts) & (df["datetime_UTC"] <= end_ts)
+    end_ts = pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)
+    mask = (df["datetime_UTC"] >= start_ts) & (df["datetime_UTC"] < end_ts)
     df = df.loc[mask, ["datetime_UTC", "Price_actual", "Price_pred_ensemble"]]
 
     rule = _RESAMPLE_RULES.get(resolution)

@@ -10,7 +10,10 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check(request: Request) -> HealthResponse:
-    engine = request.app.state.engine
+    engine = getattr(request.app.state, "engine", None)
+    if engine is None:
+        from fastapi import HTTPException
+        raise HTTPException(503, "Engine not yet initialized")
 
     table_counts = {}
     for table in ["ts_15min", "ts_hourly", "ts_daily"]:
