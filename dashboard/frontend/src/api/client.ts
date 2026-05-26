@@ -16,13 +16,17 @@ async function fetchJson<T>(
   path: string,
   params?: Record<string, string | number | boolean>,
 ): Promise<T> {
-  const url = new URL(path, window.location.origin)
-  if (params) {
-    Object.entries(params).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
-    })
-  }
-  const res = await fetch(url.toString())
+  const qs = params
+    ? '?' +
+      new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== null && v !== '')
+            .map(([k, v]) => [k, String(v)]),
+        ),
+      ).toString()
+    : ''
+  const res = await fetch(path + qs)
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
     throw new Error((detail as { detail?: string }).detail || `API error ${res.status}`)

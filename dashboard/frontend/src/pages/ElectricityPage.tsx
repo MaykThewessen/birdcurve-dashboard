@@ -12,6 +12,7 @@ import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { UTCTimestamp } from 'lightweight-charts'
 import type { EChartsOption } from 'echarts'
 import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import PageShell from '../components/common/PageShell'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 2018 + 1 }, (_, i) => 2018 + i)
@@ -372,7 +373,7 @@ export default function ElectricityPage() {
   )
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <PageShell>
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -515,6 +516,6 @@ export default function ElectricityPage() {
           <EChartsWrapper option={heatmapOption} height={280} />
         </ChartWrapper>
       </div>
-    </div>
+    </PageShell>
   )
 }
