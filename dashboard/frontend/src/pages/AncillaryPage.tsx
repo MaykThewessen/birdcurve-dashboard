@@ -11,6 +11,7 @@ import TradingViewChart, { type TradingViewSeries } from '../components/charts/T
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
 import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import PageShell from '../components/common/PageShell'
 
 // State labels and colors for regulation donut
 const STATE_CONFIG: Record<number, { label: string; color: string }> = {
@@ -285,8 +286,18 @@ export default function AncillaryPage() {
     },
   }), [donutData])
 
-  // Year options for regulation state selector
-  const yearOptions = Array.from({ length: 28 }, (_, i) => 2023 + i)
+  // Year options for regulation state selector — derived from the global
+  // dateRange so the list always covers the selected data window, plus a
+  // sensible future cap so it doesn't grow unboundedly.
+  const yearOptions = useMemo(() => {
+    const startYear = parseInt(dateRange.start.slice(0, 4), 10)
+    const endYear = Math.min(
+      Math.max(parseInt(dateRange.end.slice(0, 4), 10), new Date().getFullYear()),
+      2050,
+    )
+    const count = endYear - startYear + 1
+    return Array.from({ length: count }, (_, i) => startYear + i)
+  }, [dateRange.start, dateRange.end])
 
   // Export data for capacity
   const capacityExport =
@@ -300,7 +311,7 @@ export default function AncillaryPage() {
   const noScenario = !scenario
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <PageShell>
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -525,6 +536,6 @@ export default function AncillaryPage() {
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   )
 }

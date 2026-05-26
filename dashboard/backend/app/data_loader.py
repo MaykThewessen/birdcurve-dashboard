@@ -151,11 +151,12 @@ class DataEngine:
         Returns True if a file was found and registered, False otherwise.
         """
         from glob import glob
-        matches = sorted(glob(str(settings.eur_usd_path)))
-        if not matches:
+        raw = glob(str(settings.eur_usd_path))
+        if not raw:
             return False
-        # Use the most recent (highest sort) file in case multiple are present.
-        csv = matches[-1]
+        # Sort by mtime so the newest file on disk wins regardless of filename.
+        csvs = sorted((Path(p) for p in raw), key=lambda p: p.stat().st_mtime)
+        csv = str(csvs[-1])
         try:
             self._conn.execute(
                 f"""
@@ -181,10 +182,12 @@ class DataEngine:
         project what the dashboard needs. Returns True on success.
         """
         from glob import glob
-        matches = sorted(glob(str(settings.coal_api2_path)))
-        if not matches:
+        raw = glob(str(settings.coal_api2_path))
+        if not raw:
             return False
-        csv = matches[-1]
+        # Sort by mtime so the newest file on disk wins regardless of filename.
+        csvs = sorted((Path(p) for p in raw), key=lambda p: p.stat().st_mtime)
+        csv = str(csvs[-1])
         try:
             self._conn.execute(
                 f"""

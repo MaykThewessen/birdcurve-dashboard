@@ -7,6 +7,7 @@ import ChartWrapper from '../components/common/ChartWrapper'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
 import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import PageShell from '../components/common/PageShell'
 
 export default function ScenariosPage() {
   const { scenario } = useFilterStore()
@@ -161,7 +162,7 @@ export default function ScenariosPage() {
   const noScenario = !scenario
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <PageShell>
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -318,6 +319,6 @@ export default function ScenariosPage() {
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   )
 }

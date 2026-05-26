@@ -12,6 +12,7 @@ import TradingViewChart, { type TradingViewSeries } from '../components/charts/T
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
 import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import PageShell from '../components/common/PageShell'
 
 const TARGET_YEARS = [2025, 2030, 2040, 2050]
 
@@ -263,7 +264,7 @@ export default function ForecastPage() {
   const noScenario = !scenario
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <PageShell>
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -390,6 +391,6 @@ export default function ForecastPage() {
           </p>
         </>
       )}
-    </div>
+    </PageShell>
   )
 }

@@ -6,6 +6,7 @@ import ChartWrapper from '../components/common/ChartWrapper'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
 import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import PageShell from '../components/common/PageShell'
 
 // Price band color by name
 const BAND_COLORS: Record<string, string> = {
@@ -129,16 +130,24 @@ export default function MLPage() {
     }
   }, [predictions])
 
+  // Top-20 features by importance — computed once, shared by the chart option
+  // and the CSV export so both always reflect the same sorted slice.
+  const top20Features = useMemo(
+    () =>
+      metrics?.feature_importance?.length
+        ? [...metrics.feature_importance]
+            .sort((a, b) => b.importance - a.importance)
+            .slice(0, 20)
+        : [],
+    [metrics],
+  )
+
   // Feature importance chart
   const featureImportanceOption: EChartsOption = useMemo(() => {
-    if (!metrics?.feature_importance?.length) return {}
+    if (!top20Features.length) return {}
 
-    const top20 = [...metrics.feature_importance]
-      .sort((a, b) => b.importance - a.importance)
-      .slice(0, 20)
-
-    const names = top20.map((f) => f.name).reverse()
-    const values = top20.map((f) => f.importance).reverse()
+    const names = top20Features.map((f) => f.name).reverse()
+    const values = top20Features.map((f) => f.importance).reverse()
     const maxImp = Math.max(...values)
 
     return {
@@ -185,7 +194,7 @@ export default function MLPage() {
         },
       ],
     }
-  }, [metrics])
+  }, [top20Features])
 
   // Residual histogram
   const residualOption: EChartsOption = useMemo(() => {
@@ -285,7 +294,7 @@ export default function MLPage() {
   const cbWeight = metrics?.weights?.catboost ?? 0
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <PageShell>
       {/* Page header */}
       <div>
         <h1
@@ -537,11 +546,7 @@ export default function MLPage() {
           loading={metricsLoading}
           error={metricsError as Error | null}
           height={420}
-          exportData={
-            metrics?.feature_importance
-              .slice(0, 20)
-              .map((f) => ({ feature: f.name, importance: f.importance })) ?? []
-          }
+          exportData={top20Features.map((f) => ({ feature: f.name, importance: f.importance }))}
           exportFilename="feature_importance"
         >
           <EChartsWrapper option={featureImportanceOption} height={390} />
@@ -575,6 +580,6 @@ export default function MLPage() {
           />
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

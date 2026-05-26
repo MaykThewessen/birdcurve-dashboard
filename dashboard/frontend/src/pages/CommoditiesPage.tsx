@@ -7,6 +7,7 @@ import DateRangePicker from '../components/common/DateRangePicker'
 import ChartWrapper from '../components/common/ChartWrapper'
 import TradingViewChart, { type TradingViewSeries } from '../components/charts/TradingViewChart'
 import type { UTCTimestamp } from 'lightweight-charts'
+import PageShell from '../components/common/PageShell'
 
 const SERIES_COLORS: Record<string, string> = {
   gas_ttf: '#D4A574',
@@ -114,18 +115,40 @@ export default function CommoditiesPage() {
     })
   }
 
-  // Export data
-  const exportData =
-    commodityData?.gas_ttf?.map((p, i) => ({
-      date: p.date,
-      gas_ttf: p.value,
-      co2_eua: commodityData.co2_eua?.[i]?.value ?? '',
-      coal_api2: commodityData.coal_api2?.[i]?.value ?? '',
-      eur_usd: commodityData.eur_usd?.[i]?.value ?? '',
-    })) ?? []
+  // Export data — build a merged date→row lookup so each row in the CSV
+  // has matched values. Each series may have different LTTB-sampled dates,
+  // so we cannot zip by index. Instead we union all dates and emit one row
+  // per date with nulls for missing series values.
+  const exportData = (() => {
+    if (!commodityData) return []
+    const seriesKeys = ['gas_ttf', 'co2_eua', 'coal_api2', 'eur_usd'] as const
+    type SeriesKey = (typeof seriesKeys)[number]
+
+    // Build a date → value map for each series
+    const byDate: Record<string, Partial<Record<SeriesKey, number>>> = {}
+    for (const key of seriesKeys) {
+      const raw = commodityData[key] as { date: string; value: number }[] | undefined
+      if (!raw) continue
+      for (const p of raw) {
+        if (!byDate[p.date]) byDate[p.date] = {}
+        byDate[p.date][key] = p.value
+      }
+    }
+
+    // Emit one row per date, sorted ascending
+    return Object.keys(byDate)
+      .sort()
+      .map((date) => ({
+        date,
+        gas_ttf: byDate[date].gas_ttf ?? '',
+        co2_eua: byDate[date].co2_eua ?? '',
+        coal_api2: byDate[date].coal_api2 ?? '',
+        eur_usd: byDate[date].eur_usd ?? '',
+      }))
+  })()
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <PageShell>
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -238,6 +261,6 @@ export default function CommoditiesPage() {
         Coal marginal cost = (Coal_USD / 6.978 / EUR_USD + CO2 · 0.335) / 0.46 (46% efficiency,
         335 kg CO2/MWh_th, daily EUR/USD applied so the result is in EUR/MWh).
       </p>
-    </div>
+    </PageShell>
   )
 }

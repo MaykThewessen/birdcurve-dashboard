@@ -136,12 +136,12 @@ async def get_historical(
         for d in da_series:
             d.pop("_idx", None)
 
-    if len(supply_series) > max_points:
-        for i, d in enumerate(supply_series):
-            d["_idx"] = i
-        supply_series = lttb_downsample(supply_series, "_idx", "load", max_points)
-        for d in supply_series:
-            d.pop("_idx", None)
+    # supply_series is NOT downsampled: it contains multiple independent
+    # components (pv, wind_onshore, wind_offshore, load, import) that must
+    # all survive at equal density. LTTB on a single key (e.g. "load") would
+    # silently drop rows where that key is null, breaking the other series.
+    # The supply data volume is bounded by the SQL bucket size, so no
+    # downsampling is needed here.
 
     add_cache_headers(response, end, _today_iso())
     return {
