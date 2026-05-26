@@ -26,7 +26,7 @@ async function fetchJson<T>(
         ),
       ).toString()
     : ''
-  const res = await fetch(path + qs)
+  const res = await fetch(path + qs, { signal: AbortSignal.timeout(15000) })
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}))
     throw new Error((detail as { detail?: string }).detail || `API error ${res.status}`)

@@ -151,15 +151,16 @@ export default function TradingViewChart({
         setCrosshairTimestamp(null)
       }
 
+      const point = param.point
       const inside =
-        param.point &&
-        param.point.x >= 0 &&
-        param.point.y >= 0 &&
+        point &&
+        point.x >= 0 &&
+        point.y >= 0 &&
         containerRef.current &&
-        param.point.x <= containerRef.current.clientWidth &&
-        param.point.y <= containerRef.current.clientHeight
+        point.x <= containerRef.current.clientWidth &&
+        point.y <= containerRef.current.clientHeight
 
-      if (!inside || !param.time) {
+      if (!inside || !point || !param.time) {
         setTooltip((prev) => (prev.visible ? { ...prev, visible: false } : prev))
         return
       }
@@ -189,8 +190,8 @@ export default function TradingViewChart({
       const date = new Date(ts).toISOString().slice(0, 16).replace('T', ' ')
       setTooltip({
         visible: true,
-        x: param.point!.x,
-        y: param.point!.y,
+        x: point.x,
+        y: point.y,
         containerWidth: containerRef.current?.clientWidth ?? 0,
         date,
         rows,
