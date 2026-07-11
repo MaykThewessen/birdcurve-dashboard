@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 from functools import lru_cache
 
 import openpyxl
@@ -10,14 +9,18 @@ import pandas as pd
 from fastapi import APIRouter, Query, Request, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 
-from ..downsampling import lttb_downsample
-from ._helpers import get_engine_and_dir, add_cache_headers, to_utc_iso
+from ..downsampling import lttb_by_index
+from ._helpers import (
+    add_cache_headers,
+    auto_resolution,
+    end_exclusive,
+    get_engine_and_dir,
+    iso_utc,
+    nan_to_none,
+    today_iso,
+)
 
 router = APIRouter(prefix="/forecast", tags=["forecast"])
-
-
-def _today_iso() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
 
 
 # Resampling rules per resolution. None = take rows as-is at native granularity.
@@ -26,20 +29,6 @@ _RESAMPLE_RULES: dict[str, str | None] = {
     "hourly": "1h",
     "daily": "1D",
 }
-
-
-def _auto_resolution(start: str, end: str) -> str:
-    try:
-        d_start = datetime.fromisoformat(start[:10])
-        d_end = datetime.fromisoformat(end[:10])
-        days = (d_end - d_start).days
-    except ValueError:
-        return "hourly"
-    if days <= 7:
-        return "15min"
-    if days <= 90:
-        return "hourly"
-    return "daily"
 
 
 @lru_cache(maxsize=4)
@@ -52,7 +41,9 @@ def _read_da_forecast_csv(csv_path: str, mtime: float) -> pd.DataFrame:
     # Handle both 'datetime_UTC' (v17+) and 'datetime' (older) column names.
     df = pd.read_csv(csv_path)
     dt_col = "datetime_UTC" if "datetime_UTC" in df.columns else "datetime"
-    df[dt_col] = pd.to_datetime(df[dt_col]).dt.tz_localize("UTC")
+    # utc=True treats naive input as UTC and converts aware input — unlike
+    # .dt.tz_localize('UTC'), which raises if upstream ever emits offsets.
+    df[dt_col] = pd.to_datetime(df[dt_col], utc=True)
     df = df.rename(columns={dt_col: "datetime_UTC"})
     return df
 
@@ -85,7 +76,7 @@ def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int, resolutio
 
     data = [
         {
-            "datetime": to_utc_iso(str(r.datetime_UTC)),
+            "datetime": iso_utc(r.datetime_UTC),
             "price_actual": None if pd.isna(r.Price_actual) else float(r.Price_actual),
             "price_predicted": None if pd.isna(r.Price_pred_ensemble) else float(r.Price_pred_ensemble),
         }
@@ -94,12 +85,10 @@ def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int, resolutio
 
     if len(data) > max_points:
         # LTTB needs a numeric y-axis; fall back to price_actual if predicted is None.
-        for i, d in enumerate(data):
-            d["_idx"] = i
-            d["_y"] = d["price_predicted"] if d["price_predicted"] is not None else (d["price_actual"] or 0.0)
-        data = lttb_downsample(data, "_idx", "_y", max_points)
         for d in data:
-            d.pop("_idx", None)
+            d["_y"] = d["price_predicted"] if d["price_predicted"] is not None else (d["price_actual"] or 0.0)
+        data = lttb_by_index(data, "_y", max_points)
+        for d in data:
             d.pop("_y", None)
 
     return {
@@ -121,11 +110,11 @@ async def get_da_forecast(
 ):
     _engine, fdir = get_engine_and_dir(request, scenario)
     if resolution == "auto":
-        resolution = _auto_resolution(start, end)
+        resolution = auto_resolution(start, end)
     payload = await run_in_threadpool(
         _get_da_forecast_sync, fdir, start, end, max_points, resolution
     )
-    add_cache_headers(response, end, _today_iso())
+    add_cache_headers(response, end, today_iso())
     return payload
 
 
@@ -133,41 +122,24 @@ def _get_id3_imbalance_sync(engine, scenario: str, start: str, end: str, max_poi
     data = engine.query_forecast_file(
         scenario,
         "predictions_DA_ID3_Imb_aFRR_FCR_quarterly_2023_2050",
-        start, end,
+        start, end_exclusive(end),
         datetime_col="Datetime_UTC",
     )
-
-    def _safe(v):
-        """Convert NaN/NA pandas values to None for JSON serialization."""
-        import math
-        if v is None:
-            return None
-        try:
-            if math.isnan(float(v)):
-                return None
-        except (TypeError, ValueError):
-            pass
-        return v
 
     result = []
     for d in data:
         result.append({
-            "datetime": str(d.get("Datetime_UTC", "")),
-            "da_price": _safe(d.get("Day-ahead_price")),
-            "id3_price": _safe(d.get("ID3_price")),
-            "afrr_up": _safe(d.get("aFRR_Energy_up_price")),
-            "afrr_down": _safe(d.get("aFRR_Energy_down_price")),
-            "imb_long": _safe(d.get("imb_long_price")),
-            "imb_short": _safe(d.get("imb_short_price")),
-            "reg_state": _safe(d.get("Regulation_State")),
+            "datetime": iso_utc(d.get("Datetime_UTC", "")),
+            "da_price": nan_to_none(d.get("Day-ahead_price")),
+            "id3_price": nan_to_none(d.get("ID3_price")),
+            "afrr_up": nan_to_none(d.get("aFRR_Energy_up_price")),
+            "afrr_down": nan_to_none(d.get("aFRR_Energy_down_price")),
+            "imb_long": nan_to_none(d.get("imb_long_price")),
+            "imb_short": nan_to_none(d.get("imb_short_price")),
+            "reg_state": nan_to_none(d.get("Regulation_State")),
         })
 
-    if len(result) > max_points:
-        for i, d in enumerate(result):
-            d["_idx"] = i
-        result = lttb_downsample(result, "_idx", "da_price", max_points)
-        for d in result:
-            d.pop("_idx", None)
+    result = lttb_by_index(result, "da_price", max_points)
 
     return {
         "datetime": [r["datetime"] for r in result],
@@ -194,7 +166,7 @@ async def get_id3_imbalance(
     payload = await run_in_threadpool(
         _get_id3_imbalance_sync, engine, scenario, start, end, max_points
     )
-    add_cache_headers(response, end, _today_iso())
+    add_cache_headers(response, end, today_iso())
     return payload
 
 

@@ -2,18 +2,14 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 
-from ..downsampling import lttb_downsample
-from ._helpers import add_cache_headers
+from ..downsampling import lttb_by_index, lttb_downsample
+from ._helpers import add_cache_headers, auto_resolution, end_exclusive, iso_utc, today_iso
 
 router = APIRouter(prefix="/electricity", tags=["electricity"])
-
-
-def _today_iso() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _year_end_iso(year: int) -> str:
@@ -55,49 +51,22 @@ _RESOLUTION_BUCKETS = {
 _TS_HOURLY_HOURLY = 'EXTRACT(MINUTE FROM timestamp_utc) = 0'
 
 
-def _auto_resolution(start: str, end: str) -> str:
-    """Pick a sane bucket size from the requested range."""
-    try:
-        d_start = datetime.fromisoformat(start[:10])
-        d_end = datetime.fromisoformat(end[:10])
-        days = (d_end - d_start).days
-    except ValueError:
-        return "hourly"
-    if days <= 7:
-        return "15min"
-    if days <= 90:
-        return "hourly"
-    return "daily"
-
-
-@router.get("/historical")
-async def get_historical(
-    request: Request,
-    response: Response,
-    start: str = Query(...),
-    end: str = Query(...),
-    max_points: int = Query(5000, ge=10, le=50000),
-    resolution: str = Query("auto", pattern="^(auto|15min|hourly|daily)$"),
-):
-    engine = request.app.state.engine
-
-    if resolution == "auto":
-        resolution = _auto_resolution(start, end)
+def _get_historical_sync(engine, start: str, end: str, max_points: int, resolution: str) -> dict:
     bucket = _RESOLUTION_BUCKETS[resolution]
 
     da_sql = f"""
         SELECT {bucket} AS bucket,
                AVG("DA_price__DA_price") AS value
         FROM ts_hourly
-        WHERE timestamp_utc >= ? AND timestamp_utc <= ?
+        WHERE timestamp_utc >= ? AND timestamp_utc < ?
           AND "DA_price__DA_price" IS NOT NULL
           AND {_TS_HOURLY_HOURLY}
         GROUP BY 1
         ORDER BY 1
     """
-    da_rows = engine.query(da_sql, [start, end])
+    da_rows = engine.query(da_sql, [start, end_exclusive(end)])
     da_series = [
-        {"timestamp": str(r["bucket"]), "value": r["value"]}
+        {"timestamp": iso_utc(r["bucket"]), "value": r["value"]}
         for r in da_rows
         if not _is_missing(r["value"])
     ]
@@ -111,15 +80,15 @@ async def get_historical(
             AVG("NED_Wind_Offshore__Wind_Offshore")       AS wind_offshore,
             AVG("CrossBorder_NL__Total_Net")              AS import
         FROM ts_15min
-        WHERE timestamp_utc >= ? AND timestamp_utc <= ?
+        WHERE timestamp_utc >= ? AND timestamp_utc < ?
         GROUP BY 1
         ORDER BY 1
     """
-    supply_rows = engine.query(supply_sql, [start, end])
+    supply_rows = engine.query(supply_sql, [start, end_exclusive(end)])
 
     supply_series = [
         {
-            "timestamp":     str(r["bucket"]),
+            "timestamp":     iso_utc(r["bucket"]),
             "load":          _to_gw(r["load"]),
             "pv":            _to_gw(r["pv"]),
             "wind_onshore":  _to_gw(r["wind_onshore"]),
@@ -129,12 +98,7 @@ async def get_historical(
         for r in supply_rows
     ]
 
-    if len(da_series) > max_points:
-        for i, d in enumerate(da_series):
-            d["_idx"] = i
-        da_series = lttb_downsample(da_series, "_idx", "value", max_points)
-        for d in da_series:
-            d.pop("_idx", None)
+    da_series = lttb_by_index(da_series, "value", max_points)
 
     # supply_series is NOT downsampled: it contains multiple independent
     # components (pv, wind_onshore, wind_offshore, load, import) that must
@@ -143,21 +107,32 @@ async def get_historical(
     # The supply data volume is bounded by the SQL bucket size, so no
     # downsampling is needed here.
 
-    add_cache_headers(response, end, _today_iso())
     return {
         "da_prices": da_series,
         "supply": supply_series,
     }
 
 
-@router.get("/duration-curve")
-async def get_duration_curve(
+@router.get("/historical")
+async def get_historical(
     request: Request,
     response: Response,
-    year: int = Query(...),
+    start: str = Query(...),
+    end: str = Query(...),
+    max_points: int = Query(5000, ge=10, le=50000),
+    resolution: str = Query("auto", pattern="^(auto|15min|hourly|daily)$"),
 ):
     engine = request.app.state.engine
+    if resolution == "auto":
+        resolution = auto_resolution(start, end)
+    payload = await run_in_threadpool(
+        _get_historical_sync, engine, start, end, max_points, resolution
+    )
+    add_cache_headers(response, end, today_iso())
+    return payload
 
+
+def _get_duration_curve_sync(engine, year: int) -> dict:
     sql = f"""
         SELECT "DA_price__DA_price" AS value
         FROM ts_hourly
@@ -174,7 +149,6 @@ async def get_duration_curve(
     negative_hours = sum(1 for p in prices if p < _NEGATIVE_PRICE_THRESHOLD)
     peak_hours = sum(1 for p in prices if p > _PEAK_PRICE_THRESHOLD)
 
-    add_cache_headers(response, _year_end_iso(year), _today_iso())
     return {
         "sorted_prices": prices,
         "negative_hours": negative_hours,
@@ -183,26 +157,19 @@ async def get_duration_curve(
     }
 
 
-@router.get("/duration-curves")
-async def get_duration_curves(
+@router.get("/duration-curve")
+async def get_duration_curve(
     request: Request,
     response: Response,
-    max_points_per_year: int = Query(500, ge=50, le=5000),
-    min_hours: int = Query(720, ge=1, description="Drop years with fewer hours than this (default: ~1 month)"),
+    year: int = Query(...),
 ):
-    """All historical years as separate price-duration curves.
-
-    Each year's hourly DA prices are sorted descending and downsampled
-    via LTTB to `max_points_per_year` points. X-axis is normalised to
-    "percent of hours within that year" (0–100), so years with partial
-    data (e.g. the current year) overlay correctly with full years.
-
-    Years with fewer than `min_hours` of data are excluded — these are
-    typically stub rows at the edges of the dataset that would render
-    as single-point degenerate curves.
-    """
     engine = request.app.state.engine
+    payload = await run_in_threadpool(_get_duration_curve_sync, engine, year)
+    add_cache_headers(response, _year_end_iso(year), today_iso())
+    return payload
 
+
+def _get_duration_curves_sync(engine, max_points_per_year: int, min_hours: int) -> dict:
     sql = f"""
         SELECT EXTRACT(YEAR FROM timestamp_utc)::INT AS year,
                "DA_price__DA_price" AS value
@@ -244,19 +211,38 @@ async def get_duration_curves(
         }
 
     years_sorted = sorted(by_year.keys())
-    cache_anchor = _year_end_iso(years_sorted[-1]) if years_sorted else _today_iso()
-    add_cache_headers(response, cache_anchor, _today_iso())
     return {"years": years_sorted, "curves": curves, "stats": stats}
 
 
-@router.get("/heatmap")
-async def get_heatmap(
+@router.get("/duration-curves")
+async def get_duration_curves(
     request: Request,
     response: Response,
-    year: int = Query(...),
+    max_points_per_year: int = Query(500, ge=50, le=5000),
+    min_hours: int = Query(720, ge=1, description="Drop years with fewer hours than this (default: ~1 month)"),
 ):
-    engine = request.app.state.engine
+    """All historical years as separate price-duration curves.
 
+    Each year's hourly DA prices are sorted descending and downsampled
+    via LTTB to `max_points_per_year` points. X-axis is normalised to
+    "percent of hours within that year" (0–100), so years with partial
+    data (e.g. the current year) overlay correctly with full years.
+
+    Years with fewer than `min_hours` of data are excluded — these are
+    typically stub rows at the edges of the dataset that would render
+    as single-point degenerate curves.
+    """
+    engine = request.app.state.engine
+    payload = await run_in_threadpool(
+        _get_duration_curves_sync, engine, max_points_per_year, min_hours
+    )
+    years = payload["years"]
+    cache_anchor = _year_end_iso(years[-1]) if years else today_iso()
+    add_cache_headers(response, cache_anchor, today_iso())
+    return payload
+
+
+def _get_heatmap_sync(engine, year: int) -> dict:
     sql = f"""
         SELECT
             EXTRACT(month FROM timestamp_utc) AS month,
@@ -273,16 +259,29 @@ async def get_heatmap(
     end = f"{year + 1}-01-01"
     rows = engine.query(sql, [start, end])
 
-    matrix = [[0.0] * 12 for _ in range(24)]
+    # None (not 0.0) for cells with no data: a partial year would otherwise
+    # render future months as a real 0 EUR/MWh band.
+    matrix: list[list[float | None]] = [[None] * 12 for _ in range(24)]
     for r in rows:
         h = int(r["hour"])
         m = int(r["month"]) - 1
         if 0 <= h < 24 and 0 <= m < 12:
             matrix[h][m] = round(r["avg_price"], 1)
 
-    add_cache_headers(response, _year_end_iso(year), _today_iso())
     return {
         "hours": list(range(24)),
         "months": list(range(1, 13)),
         "values": matrix,
     }
+
+
+@router.get("/heatmap")
+async def get_heatmap(
+    request: Request,
+    response: Response,
+    year: int = Query(...),
+):
+    engine = request.app.state.engine
+    payload = await run_in_threadpool(_get_heatmap_sync, engine, year)
+    add_cache_headers(response, _year_end_iso(year), today_iso())
+    return payload

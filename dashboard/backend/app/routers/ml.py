@@ -7,8 +7,8 @@ import logging
 from fastapi import APIRouter, Query, Request, HTTPException
 from fastapi.concurrency import run_in_threadpool
 
-from ..downsampling import lttb_downsample
-from ._helpers import to_utc_iso
+from ..downsampling import lttb_by_index
+from ._helpers import iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -111,17 +111,12 @@ def _get_predictions_sync(prod, set_name: str, max_points: int):
         reader = csv.DictReader(f)
         for row in reader:
             data.append({
-                "datetime": to_utc_iso(row["datetime"]),
+                "datetime": iso_utc(row["datetime"]),
                 "actual": float(row["Price_actual"]),
                 "predicted": float(row["Price_pred_ensemble"]),
             })
 
-    if len(data) > max_points:
-        for i, d in enumerate(data):
-            d["_idx"] = i
-        data = lttb_downsample(data, "_idx", "actual", max_points)
-        for d in data:
-            d.pop("_idx", None)
+    data = lttb_by_index(data, "actual", max_points)
 
     return {
         "datetime": [d["datetime"] for d in data],
@@ -231,7 +226,7 @@ def _get_price_distributions_forecast_sync(engine, scenario: str):
     df = pd.DataFrame(data)
     if df.empty:
         return {"years": [], "distributions": []}
-    df["year"] = pd.to_datetime(df["datetime_UTC"]).dt.year
+    df["year"] = pd.to_datetime(df["datetime_UTC"], utc=True).dt.year
     df["value"] = df["Price_pred_ensemble"]
 
     distributions = _kde_distributions_from_df(df, "forecast")
@@ -241,23 +236,9 @@ def _get_price_distributions_forecast_sync(engine, scenario: str):
     }
 
 
-@router.get("/price-distributions")
-async def get_price_distributions(
-    request: Request,
-    source: str = Query("historical", pattern="^(historical|forecast)$"),
-    scenario: str = Query(""),
-):
-    """Price distribution statistics by year for violin plots."""
+def _get_price_distributions_historical_sync(engine):
+    """Full ts_hourly scan + KDE — heavy sync work."""
     import pandas as pd
-
-    engine = request.app.state.engine
-
-    if source == "forecast":
-        if not scenario:
-            raise HTTPException(400, "scenario required for forecast distributions")
-        return await run_in_threadpool(
-            _get_price_distributions_forecast_sync, engine, scenario
-        )
 
     # ts_hourly has 15-min-aligned rows from 2025-09-30+; filter to :00
     # so per-year distributions aren't double-counted.
@@ -281,3 +262,22 @@ async def get_price_distributions(
         "years": [d["year"] for d in distributions],
         "distributions": distributions,
     }
+
+
+@router.get("/price-distributions")
+async def get_price_distributions(
+    request: Request,
+    source: str = Query("historical", pattern="^(historical|forecast)$"),
+    scenario: str = Query(""),
+):
+    """Price distribution statistics by year for violin plots."""
+    engine = request.app.state.engine
+
+    if source == "forecast":
+        if not scenario:
+            raise HTTPException(400, "scenario required for forecast distributions")
+        return await run_in_threadpool(
+            _get_price_distributions_forecast_sync, engine, scenario
+        )
+
+    return await run_in_threadpool(_get_price_distributions_historical_sync, engine)

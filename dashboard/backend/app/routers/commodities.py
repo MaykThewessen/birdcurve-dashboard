@@ -2,28 +2,23 @@
 from __future__ import annotations
 
 import bisect
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request, Response
+from fastapi.concurrency import run_in_threadpool
 
-from ..downsampling import lttb_downsample
-from ._helpers import add_cache_headers
+from ..downsampling import lttb_by_index
+from ._helpers import add_cache_headers, end_exclusive, today_iso
 
 router = APIRouter(prefix="/commodities", tags=["commodities"])
 
 # Wide-format ts_daily columns. Coal_API2 and EUR_USD are not in the live
-# DuckDB ts_daily table — return empty arrays for them so the frontend
-# contract is preserved (page degrades gracefully).
+# DuckDB ts_daily table — they come from sidecar CSVs registered by the
+# engine at startup (see blocks below); the page degrades gracefully to
+# empty arrays when a sidecar is absent.
 COMMODITY_COLUMNS = {
     "gas_ttf": "Gas_TTF__price",
     "co2_eua": "CO2_EUA__price",
 }
-
-# Frontend-visible series keys that are intentionally empty (not in DB yet).
-# eur_usd and coal_api2 live outside the DuckDB but get registered as temp
-# tables by the engine when the configured CSVs are available — see series
-# blocks below.
-_EMPTY_SERIES_KEYS: list[str] = []
 
 # Gas (CCGT) marginal cost.
 #
@@ -59,34 +54,11 @@ def _date_str(ts) -> str:
     return str(ts)[:10]
 
 
-def _today_iso() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
-
-
-def _downsample(series: list[dict], max_points: int) -> list[dict]:
-    if len(series) <= max_points:
-        return series
-    for i, d in enumerate(series):
-        d["_idx"] = i
-    series = lttb_downsample(series, x_key="_idx", y_key="value", max_points=max_points)
-    for d in series:
-        d.pop("_idx", None)
-    return series
-
-
-@router.get("")
-async def get_commodities(
-    request: Request,
-    response: Response,
-    start: str = Query(..., description="Start date YYYY-MM-DD"),
-    end: str = Query(..., description="End date YYYY-MM-DD"),
-    include_marginal: bool = Query(False),
-    max_points: int = Query(5000, ge=10, le=50000),
-):
-    engine = request.app.state.engine
-
+def _get_commodities_sync(
+    engine, start: str, end: str, include_marginal: bool, max_points: int,
+) -> dict[str, list[dict]]:
     rows = engine.query_wide(
-        "ts_daily", list(COMMODITY_COLUMNS.values()), start, end
+        "ts_daily", list(COMMODITY_COLUMNS.values()), start, end_exclusive(end)
     )
 
     result: dict[str, list[dict]] = {}
@@ -96,13 +68,10 @@ async def get_commodities(
             for row in rows
             if row[col] is not None
         ]
-        result[key] = _downsample(series, max_points)
-
-    # Empty arrays for series not in the live DB (frontend contract).
-    for key in _EMPTY_SERIES_KEYS:
-        result[key] = []
+        result[key] = lttb_by_index(series, "value", max_points)
 
     # EUR/USD comes from a sidecar CSV registered by the engine at startup.
+    # Its `date` column is a DATE, so `<=` with a bare date is inclusive.
     if engine.has_eur_usd:
         eur_usd_rows = engine.query(
             'SELECT date, USD_per_EUR FROM eur_usd '
@@ -115,7 +84,7 @@ async def get_commodities(
             for r in eur_usd_rows
             if r["USD_per_EUR"] is not None
         ]
-        result["eur_usd"] = _downsample(eur_usd_series, max_points)
+        result["eur_usd"] = lttb_by_index(eur_usd_series, "value", max_points)
     else:
         result["eur_usd"] = []
 
@@ -132,7 +101,7 @@ async def get_commodities(
             for r in coal_rows
             if r["price_USD_ton"] is not None
         ]
-        result["coal_api2"] = _downsample(coal_series, max_points)
+        result["coal_api2"] = lttb_by_index(coal_series, "value", max_points)
     else:
         result["coal_api2"] = []
 
@@ -153,7 +122,7 @@ async def get_commodities(
                 "date": _date_str(row["timestamp_utc"]),
                 "value": (gas_lhv + co2 * _GAS_EMISSIONS_T_PER_MWH_LHV) / _GAS_EFFICIENCY_LHV,
             })
-        result["gas_marginal"] = _downsample(gas_marginal, max_points)
+        result["gas_marginal"] = lttb_by_index(gas_marginal, "value", max_points)
 
         # Coal marginal — joins ts_daily gas/CO2 dates against the coal sidecar.
         # Coal is in USD/ton; convert to EUR using the daily EUR/USD rate so
@@ -200,29 +169,39 @@ async def get_commodities(
                     "value": (coal_eur_per_mwh + co2 * _COAL_EMISSIONS_T_PER_MWH)
                              / _COAL_EFFICIENCY,
                 })
-            result["coal_marginal"] = _downsample(coal_marginal, max_points)
+            result["coal_marginal"] = lttb_by_index(coal_marginal, "value", max_points)
         else:
             result["coal_marginal"] = []
 
-    add_cache_headers(response, end, _today_iso())
     return result
 
 
-@router.get("/kpi")
-async def get_commodity_kpis(request: Request, response: Response):
-    """Latest non-null value and change vs prior non-null per commodity.
-
-    Per-column query so a stale tail in one series (e.g. days of NULL
-    while the source feed lags) doesn't suppress the others.
-    """
+@router.get("")
+async def get_commodities(
+    request: Request,
+    response: Response,
+    start: str = Query(..., description="Start date YYYY-MM-DD"),
+    end: str = Query(..., description="End date YYYY-MM-DD"),
+    include_marginal: bool = Query(False),
+    max_points: int = Query(5000, ge=10, le=50000),
+):
     engine = request.app.state.engine
+    result = await run_in_threadpool(
+        _get_commodities_sync, engine, start, end, include_marginal, max_points
+    )
+    add_cache_headers(response, end, today_iso())
+    return result
 
+
+def _get_commodity_kpis_sync(engine) -> dict:
     kpis: dict = {}
     for key, col in COMMODITY_COLUMNS.items():
+        # NOT isnan: a float NaN passes `IS NOT NULL` in DuckDB but becomes
+        # None after JSON sanitising, and `latest - prev` on None would 500.
         sql = f'''
             SELECT timestamp_utc, "{col}" AS value
             FROM ts_daily
-            WHERE "{col}" IS NOT NULL
+            WHERE "{col}" IS NOT NULL AND NOT isnan("{col}")
             ORDER BY timestamp_utc DESC
             LIMIT 2
         '''
@@ -239,7 +218,7 @@ async def get_commodity_kpis(request: Request, response: Response):
     if engine.has_eur_usd:
         rows = engine.query(
             'SELECT date, USD_per_EUR FROM eur_usd '
-            'WHERE USD_per_EUR IS NOT NULL '
+            'WHERE USD_per_EUR IS NOT NULL AND NOT isnan(USD_per_EUR) '
             'ORDER BY date DESC LIMIT 2'
         )
         if rows:
@@ -253,7 +232,7 @@ async def get_commodity_kpis(request: Request, response: Response):
     if engine.has_coal_api2:
         rows = engine.query(
             'SELECT date, price_USD_ton FROM coal_api2 '
-            'WHERE price_USD_ton IS NOT NULL '
+            'WHERE price_USD_ton IS NOT NULL AND NOT isnan(price_USD_ton) '
             'ORDER BY date DESC LIMIT 2'
         )
         if rows:
@@ -263,6 +242,18 @@ async def get_commodity_kpis(request: Request, response: Response):
             kpis["coal_api2_change"] = round(latest - prev, 2) if prev is not None else 0
             kpis["coal_api2_date"] = _date_str(rows[0]["date"])
 
+    return kpis
+
+
+@router.get("/kpi")
+async def get_commodity_kpis(request: Request, response: Response):
+    """Latest non-null value and change vs prior non-null per commodity.
+
+    Per-column query so a stale tail in one series (e.g. days of NULL
+    while the source feed lags) doesn't suppress the others.
+    """
+    engine = request.app.state.engine
+    kpis = await run_in_threadpool(_get_commodity_kpis_sync, engine)
     # KPI is always "latest" → short cache.
     response.headers["Cache-Control"] = "public, max-age=300"
     return kpis
