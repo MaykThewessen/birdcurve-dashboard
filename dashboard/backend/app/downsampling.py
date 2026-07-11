@@ -2,6 +2,22 @@
 from __future__ import annotations
 
 
+def lttb_by_index(data: list[dict], y_key: str, max_points: int) -> list[dict]:
+    """LTTB using each row's list position as the x-axis.
+
+    Encapsulates the tag-with-"_idx" / downsample / strip-"_idx" dance the
+    routers all need when rows carry non-numeric x values (ISO datetimes).
+    """
+    if len(data) <= max_points:
+        return data
+    for i, d in enumerate(data):
+        d["_idx"] = i
+    data = lttb_downsample(data, "_idx", y_key, max_points)
+    for d in data:
+        d.pop("_idx", None)
+    return data
+
+
 def lttb_downsample(
     data: list[dict],
     x_key: str,
