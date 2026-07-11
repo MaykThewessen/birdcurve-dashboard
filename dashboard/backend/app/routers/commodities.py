@@ -54,6 +54,48 @@ def _date_str(ts) -> str:
     return str(ts)[:10]
 
 
+def _ffill_lookup(dates: list[str], values: list[float], date_key: str) -> float | None:
+    """Most recent value at or before date_key, or None if none exists.
+
+    `dates` must be sorted ascending ISO date strings.
+    """
+    idx = bisect.bisect_right(dates, date_key)
+    return values[idx - 1] if idx > 0 else None
+
+
+def _co2_settles(engine, end: str) -> tuple[list[str], list[float]]:
+    """All CO2 settle (date, value) pairs up to and including `end`, ascending.
+
+    Queried without a start bound so forward-filling works even when the
+    last CO2 settle predates the requested window: CO2 ingestion can lag
+    gas by weeks, and requiring same-date CO2 would zero out the marginal
+    series (and KPIs) for the whole window.
+    """
+    co2_col = COMMODITY_COLUMNS["co2_eua"]
+    dates: list[str] = []
+    values: list[float] = []
+    for r in engine.query(
+        f'SELECT timestamp_utc, "{co2_col}" AS value FROM ts_daily '
+        f'WHERE "{co2_col}" IS NOT NULL AND NOT isnan("{co2_col}") '
+        'AND timestamp_utc < ? ORDER BY timestamp_utc',
+        [end_exclusive(end)],
+    ):
+        dates.append(_date_str(r["timestamp_utc"]))
+        values.append(r["value"])
+    return dates, values
+
+
+def _gas_marginal_eur_mwh(gas: float, co2: float) -> float:
+    """CCGT marginal cost: HHV→LHV-converted gas plus CO2, over LHV efficiency."""
+    return (gas * _HHV_OVER_LHV_NATURAL_GAS + co2 * _GAS_EMISSIONS_T_PER_MWH_LHV) / _GAS_EFFICIENCY_LHV
+
+
+def _coal_marginal_eur_mwh(coal_usd_ton: float, co2: float, usd_per_eur: float) -> float:
+    """Hard-coal marginal cost, coal converted USD/ton → EUR/MWh_th first."""
+    coal_eur_per_mwh = coal_usd_ton / _COAL_MWH_PER_TON / usd_per_eur
+    return (coal_eur_per_mwh + co2 * _COAL_EMISSIONS_T_PER_MWH) / _COAL_EFFICIENCY
+
+
 def _get_commodities_sync(
     engine, start: str, end: str, include_marginal: bool, max_points: int,
 ) -> dict[str, list[dict]]:
@@ -107,20 +149,24 @@ def _get_commodities_sync(
 
     if include_marginal:
         gas_col = COMMODITY_COLUMNS["gas_ttf"]
-        co2_col = COMMODITY_COLUMNS["co2_eua"]
+        # CO2 is forward-filled from its most recent settle (last-settle
+        # convention, same as the EUR/USD fill below): requiring a same-date
+        # CO2 value made both marginal series vanish whenever CO2 ingestion
+        # lagged the gas feed.
+        co2_dates, co2_values = _co2_settles(engine, end)
+
         gas_marginal = []
         for row in rows:
-            gas, co2 = row[gas_col], row[co2_col]
-            if gas is None or co2 is None:
+            gas = row[gas_col]
+            if gas is None:
                 continue
-            # Convert TTF (HHV-quoted) to LHV basis, then add LHV-basis CO2
-            # cost and divide by LHV efficiency. Both terms end up in
-            # EUR/MWh_e and the divisor is consistent with how plant
-            # efficiency is reported.
-            gas_lhv = gas * _HHV_OVER_LHV_NATURAL_GAS
+            date_key = _date_str(row["timestamp_utc"])
+            co2 = _ffill_lookup(co2_dates, co2_values, date_key)
+            if co2 is None:
+                continue
             gas_marginal.append({
-                "date": _date_str(row["timestamp_utc"]),
-                "value": (gas_lhv + co2 * _GAS_EMISSIONS_T_PER_MWH_LHV) / _GAS_EFFICIENCY_LHV,
+                "date": date_key,
+                "value": _gas_marginal_eur_mwh(gas, co2),
             })
         result["gas_marginal"] = lttb_by_index(gas_marginal, "value", max_points)
 
@@ -153,21 +199,18 @@ def _get_commodities_sync(
 
             coal_marginal = []
             for row in rows:
-                gas, co2 = row[gas_col], row[co2_col]
                 date_key = _date_str(row["timestamp_utc"])
                 coal = coal_lookup.get(date_key)
-                if gas is None or co2 is None or coal is None:
+                co2 = _ffill_lookup(co2_dates, co2_values, date_key)
+                if coal is None or co2 is None:
                     continue
                 # Forward-fill EUR/USD: most recent rate at or before date.
                 # Fallback 1.0 (i.e. USD-as-EUR) when no FX data is loaded
                 # — preserves the legacy behaviour for repos without the CSV.
-                idx = bisect.bisect_right(fx_dates, date_key)
-                usd_per_eur = fx_rates[idx - 1] if idx > 0 else 1.0
-                coal_eur_per_mwh = coal / _COAL_MWH_PER_TON / usd_per_eur
+                usd_per_eur = _ffill_lookup(fx_dates, fx_rates, date_key) or 1.0
                 coal_marginal.append({
                     "date": date_key,
-                    "value": (coal_eur_per_mwh + co2 * _COAL_EMISSIONS_T_PER_MWH)
-                             / _COAL_EFFICIENCY,
+                    "value": _coal_marginal_eur_mwh(coal, co2, usd_per_eur),
                 })
             result["coal_marginal"] = lttb_by_index(coal_marginal, "value", max_points)
         else:
@@ -195,6 +238,10 @@ async def get_commodities(
 
 def _get_commodity_kpis_sync(engine) -> dict:
     kpis: dict = {}
+    # (date, value) of the latest two settles per series, newest first —
+    # kept for the derived marginal-cost KPIs below.
+    settles: dict[str, list[tuple[str, float]]] = {}
+
     for key, col in COMMODITY_COLUMNS.items():
         # NOT isnan: a float NaN passes `IS NOT NULL` in DuckDB but becomes
         # None after JSON sanitising, and `latest - prev` on None would 500.
@@ -208,11 +255,12 @@ def _get_commodity_kpis_sync(engine) -> dict:
         rows = engine.query(sql)
         if not rows:
             continue
-        latest_ts, latest = rows[0]["timestamp_utc"], rows[0]["value"]
+        settles[key] = [(_date_str(r["timestamp_utc"]), r["value"]) for r in rows]
+        latest = rows[0]["value"]
         prev = rows[1]["value"] if len(rows) >= 2 else None
         kpis[f"{key}_latest"] = latest
         kpis[f"{key}_change"] = round(latest - prev, 2) if prev is not None else 0
-        kpis[f"{key}_date"] = _date_str(latest_ts)
+        kpis[f"{key}_date"] = settles[key][0][0]
 
     # EUR/USD KPI from sidecar table when available.
     if engine.has_eur_usd:
@@ -222,11 +270,12 @@ def _get_commodity_kpis_sync(engine) -> dict:
             'ORDER BY date DESC LIMIT 2'
         )
         if rows:
+            settles["eur_usd"] = [(_date_str(r["date"]), r["USD_per_EUR"]) for r in rows]
             latest = rows[0]["USD_per_EUR"]
             prev = rows[1]["USD_per_EUR"] if len(rows) >= 2 else None
             kpis["eur_usd_latest"] = latest
             kpis["eur_usd_change"] = round(latest - prev, 4) if prev is not None else 0
-            kpis["eur_usd_date"] = _date_str(rows[0]["date"])
+            kpis["eur_usd_date"] = settles["eur_usd"][0][0]
 
     # Coal API2 KPI from sidecar table when available.
     if engine.has_coal_api2:
@@ -236,11 +285,52 @@ def _get_commodity_kpis_sync(engine) -> dict:
             'ORDER BY date DESC LIMIT 2'
         )
         if rows:
+            settles["coal_api2"] = [(_date_str(r["date"]), r["price_USD_ton"]) for r in rows]
             latest = rows[0]["price_USD_ton"]
             prev = rows[1]["price_USD_ton"] if len(rows) >= 2 else None
             kpis["coal_api2_latest"] = latest
             kpis["coal_api2_change"] = round(latest - prev, 2) if prev is not None else 0
-            kpis["coal_api2_date"] = _date_str(rows[0]["date"])
+            kpis["coal_api2_date"] = settles["coal_api2"][0][0]
+
+    # Derived marginal-cost KPIs, mirroring the series endpoint: anchored on
+    # the fuel's settle dates with CO2 (and FX) forward-filled from their
+    # most recent settles. The CO2 card's own staleness badge tells the user
+    # how old the filled CO2 leg is.
+    co2_dates, co2_values = _co2_settles(engine, today_iso())
+
+    gas_points = [
+        (date, _gas_marginal_eur_mwh(gas, co2))
+        for date, gas in settles.get("gas_ttf", [])
+        if (co2 := _ffill_lookup(co2_dates, co2_values, date)) is not None
+    ]
+    if gas_points:
+        kpis["gas_marginal_latest"] = round(gas_points[0][1], 2)
+        kpis["gas_marginal_change"] = (
+            round(gas_points[0][1] - gas_points[1][1], 2) if len(gas_points) > 1 else 0
+        )
+        kpis["gas_marginal_date"] = gas_points[0][0]
+
+    fx_dates: list[str] = []
+    fx_rates: list[float] = []
+    if engine.has_eur_usd:
+        for r in engine.query(
+            'SELECT date, USD_per_EUR FROM eur_usd '
+            'WHERE USD_per_EUR IS NOT NULL AND NOT isnan(USD_per_EUR) '
+            'ORDER BY date'
+        ):
+            fx_dates.append(_date_str(r["date"]))
+            fx_rates.append(r["USD_per_EUR"])
+    coal_points = [
+        (date, _coal_marginal_eur_mwh(coal, co2, _ffill_lookup(fx_dates, fx_rates, date) or 1.0))
+        for date, coal in settles.get("coal_api2", [])
+        if (co2 := _ffill_lookup(co2_dates, co2_values, date)) is not None
+    ]
+    if coal_points:
+        kpis["coal_marginal_latest"] = round(coal_points[0][1], 2)
+        kpis["coal_marginal_change"] = (
+            round(coal_points[0][1] - coal_points[1][1], 2) if len(coal_points) > 1 else 0
+        )
+        kpis["coal_marginal_date"] = coal_points[0][0]
 
     return kpis
 
