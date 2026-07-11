@@ -13,6 +13,7 @@ const SERIES_COLORS: Record<string, string> = {
   gas_ttf: '#D4A574',
   co2_eua: '#60A5FA',
   coal_api2: '#A78BFA',
+  coal_eur_mwh: '#FB923C',
   eur_usd: '#22D3EE',
   gas_marginal: '#4ADE80',
   coal_marginal: '#F87171',
@@ -21,7 +22,8 @@ const SERIES_COLORS: Record<string, string> = {
 const SERIES_LABELS: Record<string, string> = {
   gas_ttf: 'Gas TTF',
   co2_eua: 'CO2 EUA',
-  coal_api2: 'Coal API2',
+  coal_api2: 'Coal API2 (USD/t)',
+  coal_eur_mwh: 'Coal API2 (EUR/MWh_th)',
   eur_usd: 'EUR/USD',
   gas_marginal: 'Gas Marginal',
   coal_marginal: 'Coal Marginal',
@@ -31,6 +33,7 @@ const SERIES_UNITS: Record<string, string> = {
   gas_ttf: 'EUR/MWh',
   co2_eua: 'EUR/ton',
   coal_api2: 'USD/ton',
+  coal_eur_mwh: 'EUR/MWh_th',
   eur_usd: 'USD/EUR',
   gas_marginal: 'EUR/MWh',
   coal_marginal: 'EUR/MWh',
@@ -47,8 +50,10 @@ function formatValue(value: number | string | null | undefined, key: string): st
 export default function CommoditiesPage() {
   const dateRange = useFilterStore((s) => s.dateRange)
   const [showMarginal, setShowMarginal] = useState(false)
+  // Coal defaults to thermal terms (EUR/MWh_th) so it reads on the same
+  // scale as Gas TTF; the raw USD/ton quote stays one toggle away.
   const [activeSeriesKeys, setActiveSeriesKeys] = useState<Set<string>>(
-    new Set(['gas_ttf', 'co2_eua', 'coal_api2']),
+    new Set(['gas_ttf', 'co2_eua', 'coal_eur_mwh']),
   )
 
   const { data: kpiData, isLoading: kpiLoading } = useQuery({
@@ -65,7 +70,7 @@ export default function CommoditiesPage() {
   // a fresh array identity, which would rebuild the chart and reset zoom.
   const chartSeries: TradingViewSeries[] = useMemo(() => {
     if (!commodityData) return []
-    const seriesKeys = ['gas_ttf', 'co2_eua', 'coal_api2', 'eur_usd']
+    const seriesKeys = ['gas_ttf', 'co2_eua', 'coal_api2', 'coal_eur_mwh', 'eur_usd']
     if (showMarginal) seriesKeys.push('gas_marginal', 'coal_marginal')
 
     const series: TradingViewSeries[] = []
@@ -101,6 +106,7 @@ export default function CommoditiesPage() {
   const kpiCards = [
     { key: 'gas_ttf', title: 'Gas TTF', unit: 'EUR/MWh' },
     { key: 'co2_eua', title: 'CO2 EUA', unit: 'EUR/ton' },
+    { key: 'coal_eur_mwh', title: 'Coal API2', unit: 'EUR/MWh_th' },
     { key: 'coal_api2', title: 'Coal API2', unit: 'USD/ton' },
     { key: 'gas_marginal', title: 'Gas Marginal', unit: 'EUR/MWh' },
     { key: 'coal_marginal', title: 'Coal Marginal', unit: 'EUR/MWh' },
@@ -124,7 +130,7 @@ export default function CommoditiesPage() {
   // per date with nulls for missing series values.
   const exportData = (() => {
     if (!commodityData) return []
-    const seriesKeys = ['gas_ttf', 'co2_eua', 'coal_api2', 'eur_usd'] as const
+    const seriesKeys = ['gas_ttf', 'co2_eua', 'coal_api2', 'coal_eur_mwh', 'eur_usd'] as const
     type SeriesKey = (typeof seriesKeys)[number]
 
     // Build a date → value map for each series
@@ -146,6 +152,7 @@ export default function CommoditiesPage() {
         gas_ttf: byDate[date].gas_ttf ?? '',
         co2_eua: byDate[date].co2_eua ?? '',
         coal_api2: byDate[date].coal_api2 ?? '',
+        coal_eur_mwh: byDate[date].coal_eur_mwh ?? '',
         eur_usd: byDate[date].eur_usd ?? '',
       }))
   })()
@@ -169,7 +176,7 @@ export default function CommoditiesPage() {
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {kpiCards.map(({ key, title, unit }, i) => (
           <KpiCard
             key={key}
@@ -258,11 +265,13 @@ export default function CommoditiesPage() {
 
       {/* Summary note */}
       <p className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
+        Coal EUR/MWh_th = Coal_USD / 6.978 / EUR_USD (25.12 GJ/ton LHV, daily EUR/USD
+        forward-filled), shown by default so coal reads on the same energy scale as Gas TTF.
         Gas marginal cost = (Gas TTF · 1.108 + CO2 · 0.202) / 0.58 — TTF is per MWh_HHV but
         plant efficiency is reported on LHV; the 1.108 factor converts HHV→LHV before applying
         58% LHV efficiency and 202 kg CO2/MWh_LHV (IPCC NCV).
-        Coal marginal cost = (Coal_USD / 6.978 / EUR_USD + CO2 · 0.335) / 0.46 (46% efficiency,
-        335 kg CO2/MWh_th, daily EUR/USD applied so the result is in EUR/MWh).
+        Coal marginal cost = (Coal EUR/MWh_th + CO2 · 0.335) / 0.46 (46% efficiency,
+        335 kg CO2/MWh_th). CO2 legs use the most recent settle (forward-filled).
       </p>
     </PageShell>
   )
