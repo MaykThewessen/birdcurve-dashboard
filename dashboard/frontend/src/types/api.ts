@@ -45,7 +45,7 @@ export interface DurationCurvesResponse {
 export interface HeatmapResponse {
   hours: number[]
   months: number[]
-  values: number[][]
+  values: (number | null)[][]  // null = no data for that (hour, month) cell
 }
 
 export interface MetricsResponse {
@@ -139,18 +139,18 @@ export interface ScenarioDataResponse {
 export interface DAForecastResponse {
   datetime: string[]
   price_actual: (number | null)[]
-  price_predicted: number[]
+  price_predicted: (number | null)[]
 }
 
 export interface ID3ImbalanceResponse {
   datetime: string[]
-  da_price: number[]
-  id3_price: number[]
-  afrr_up: number[]
-  afrr_down: number[]
-  imb_long: number[]
-  imb_short: number[]
-  reg_state: number[]
+  da_price: (number | null)[]
+  id3_price: (number | null)[]
+  afrr_up: (number | null)[]
+  afrr_down: (number | null)[]
+  imb_long: (number | null)[]
+  imb_short: (number | null)[]
+  reg_state: (number | null)[]
 }
 
 export interface AnnualStatsResponse {
@@ -170,6 +170,7 @@ export interface AnnualStatsResponse {
   solar_capture: number[]
   solar_rev: number[]
   wind_rev: number[]
+  demand_twh: number[]
 }
 
 export interface AncillaryCapacityResponse {

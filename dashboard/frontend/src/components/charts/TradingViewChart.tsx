@@ -10,7 +10,6 @@ import {
   CrosshairMode,
   LineStyle,
 } from 'lightweight-charts'
-import { useFilterStore } from '../../store/filterStore'
 
 export interface TradingViewSeries {
   data: { time: UTCTimestamp; value: number }[]
@@ -101,7 +100,6 @@ export default function TradingViewChart({
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false, x: 0, y: 0, containerWidth: 0, date: '', rows: [],
   })
-  const { setCrosshairTimestamp } = useFilterStore()
   const onRangeRef = useRef(onVisibleRangeChange)
   useEffect(() => {
     onRangeRef.current = onVisibleRangeChange
@@ -145,12 +143,6 @@ export default function TradingViewChart({
     // them next to the cursor. param.seriesData is a Map keyed by the
     // ISeriesApi instances we pushed into seriesRefs.
     chart.subscribeCrosshairMove((param) => {
-      if (param.time) {
-        setCrosshairTimestamp(param.time as number)
-      } else {
-        setCrosshairTimestamp(null)
-      }
-
       const point = param.point
       const inside =
         point &&
@@ -249,7 +241,7 @@ export default function TradingViewChart({
       chart.remove()
       chartRef.current = null
     }
-  }, [height, setCrosshairTimestamp])
+  }, [height])
 
   // Update series data
   useEffect(() => {

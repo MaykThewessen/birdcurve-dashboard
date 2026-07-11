@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useFilterStore } from '../store/filterStore'
@@ -45,7 +45,7 @@ function formatValue(value: number | string | null | undefined, key: string): st
 }
 
 export default function CommoditiesPage() {
-  const { dateRange } = useFilterStore()
+  const dateRange = useFilterStore((s) => s.dateRange)
   const [showMarginal, setShowMarginal] = useState(false)
   const [activeSeriesKeys, setActiveSeriesKeys] = useState<Set<string>>(
     new Set(['gas_ttf', 'co2_eua', 'coal_api2']),
@@ -61,12 +61,14 @@ export default function CommoditiesPage() {
     queryFn: () => api.commodities(dateRange.start, dateRange.end, showMarginal),
   })
 
-  // Build chart series
-  const chartSeries: TradingViewSeries[] = []
-  if (commodityData) {
+  // Build chart series. Memoized so re-renders don't hand TradingViewChart
+  // a fresh array identity, which would rebuild the chart and reset zoom.
+  const chartSeries: TradingViewSeries[] = useMemo(() => {
+    if (!commodityData) return []
     const seriesKeys = ['gas_ttf', 'co2_eua', 'coal_api2', 'eur_usd']
     if (showMarginal) seriesKeys.push('gas_marginal', 'coal_marginal')
 
+    const series: TradingViewSeries[] = []
     seriesKeys.forEach((key) => {
       if (!activeSeriesKeys.has(key)) return
       const raw = commodityData[key as keyof typeof commodityData] as
@@ -81,7 +83,7 @@ export default function CommoditiesPage() {
         }))
         .sort((a, b) => a.time - b.time)
 
-      chartSeries.push({
+      series.push({
         data,
         color: SERIES_COLORS[key],
         lineWidth: 2,
@@ -92,7 +94,8 @@ export default function CommoditiesPage() {
         decimals: key === 'eur_usd' ? 4 : 2,
       })
     })
-  }
+    return series
+  }, [commodityData, showMarginal, activeSeriesKeys])
 
   // KPI cards
   const kpiCards = [

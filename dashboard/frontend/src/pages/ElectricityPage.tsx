@@ -79,7 +79,7 @@ function yearColor(yearIdx: number, total: number): string {
 }
 
 export default function ElectricityPage() {
-  const { dateRange } = useFilterStore()
+  const dateRange = useFilterStore((s) => s.dateRange)
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR)
   const [activeOverlays, setActiveOverlays] = useState<Set<OverlayKey>>(new Set())
 
@@ -133,7 +133,9 @@ export default function ElectricityPage() {
     const prices = kpiHistData?.da_prices ?? []
     if (!prices.length) return null
 
-    const today = format(new Date(), 'yyyy-MM-dd')
+    // Timestamps are UTC, so "today" must be the UTC date — the local date
+    // mismatches for a few hours around local midnight.
+    const today = new Date().toISOString().slice(0, 10)
     const todayPrices = prices
       .filter((p) => p.timestamp.startsWith(today))
       .map((p) => p.value)

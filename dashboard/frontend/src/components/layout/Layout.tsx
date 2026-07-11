@@ -15,7 +15,9 @@ const PAGE_LABELS: Record<string, string> = {
 
 export default function Layout() {
   const location = useLocation()
-  const { theme, dateRange, setDateRange } = useFilterStore()
+  const theme = useFilterStore((s) => s.theme)
+  const dateRangeEnd = useFilterStore((s) => s.dateRange.end)
+  const setDateRange = useFilterStore((s) => s.setDateRange)
   const pageLabel = PAGE_LABELS[location.pathname] ?? 'Dashboard'
 
   // Apply theme class to document
@@ -34,12 +36,12 @@ export default function Layout() {
     const handleVisibility = () => {
       if (document.visibilityState !== 'visible') return
       const today = format(new Date(), 'yyyy-MM-dd')
-      if (dateRange.end >= today) return
+      if (dateRangeEnd >= today) return
       setDateRange(format(subDays(new Date(), DEFAULT_RANGE_DAYS), 'yyyy-MM-dd'), today)
     }
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [dateRange.end, setDateRange])
+  }, [dateRangeEnd, setDateRange])
 
   return (
     <div

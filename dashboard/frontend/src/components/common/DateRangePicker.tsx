@@ -14,7 +14,8 @@ interface DateRangePickerProps {
 }
 
 export default function DateRangePicker({ className = '' }: DateRangePickerProps) {
-  const { dateRange, setDateRange } = useFilterStore()
+  const dateRange = useFilterStore((s) => s.dateRange)
+  const setDateRange = useFilterStore((s) => s.setDateRange)
 
   const isPresetActive = (preset: typeof PRESETS[0]) => {
     const range = preset.getRange()
@@ -58,7 +59,13 @@ export default function DateRangePicker({ className = '' }: DateRangePickerProps
           aria-label="Start date"
           type="date"
           value={dateRange.start}
-          onChange={(e) => setDateRange(e.target.value, dateRange.end)}
+          max={dateRange.end}
+          onChange={(e) => {
+            const start = e.target.value
+            if (!start) return
+            // Native `max` can be bypassed by typing — clamp an inverted range.
+            setDateRange(start, start > dateRange.end ? start : dateRange.end)
+          }}
           className="px-2 py-1.5 text-xs rounded-lg border transition-colors"
           style={{
             backgroundColor: 'var(--bg-elevated)',
@@ -75,7 +82,12 @@ export default function DateRangePicker({ className = '' }: DateRangePickerProps
           aria-label="End date"
           type="date"
           value={dateRange.end}
-          onChange={(e) => setDateRange(dateRange.start, e.target.value)}
+          min={dateRange.start}
+          onChange={(e) => {
+            const end = e.target.value
+            if (!end) return
+            setDateRange(end < dateRange.start ? end : dateRange.start, end)
+          }}
           className="px-2 py-1.5 text-xs rounded-lg border transition-colors"
           style={{
             backgroundColor: 'var(--bg-elevated)',

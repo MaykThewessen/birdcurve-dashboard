@@ -33,7 +33,8 @@ const THEMES = [
 
 export default function Sidebar() {
   const [expanded, setExpanded] = useState(false)
-  const { theme, setTheme } = useFilterStore()
+  const theme = useFilterStore((s) => s.theme)
+  const setTheme = useFilterStore((s) => s.setTheme)
 
   return (
     <aside
