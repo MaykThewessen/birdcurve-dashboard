@@ -1,11 +1,11 @@
 .PHONY: dev backend frontend install install-backend install-frontend test-backend
 
-# Python and npm both come from pixi-managed global envs declared in
-# ~/.pixi/manifests/pixi-global.toml (envs.main and envs.nodejs). We use
-# absolute paths so the recipes work regardless of whether ~/.pixi/bin is
-# on the shell PATH.
+# Python comes from the pixi-managed global 'main' env (absolute path so
+# recipes work regardless of whether ~/.pixi/bin is on the shell PATH).
+# npm resolves from PATH (Homebrew or pixi, whichever is installed) with
+# the legacy pixi location as fallback.
 PYTHON := $(HOME)/.pixi/envs/main/bin/python
-NPM    := $(HOME)/.pixi/bin/npm
+NPM    := $(shell command -v npm || echo $(HOME)/.pixi/bin/npm)
 
 dev: ## Start both backend and frontend
 	@echo "Starting BirdCurve Dashboard..."
