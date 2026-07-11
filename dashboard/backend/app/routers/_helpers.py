@@ -1,7 +1,10 @@
-"""Shared helpers for scenario-aware routers."""
+"""Shared helpers for the dashboard routers."""
 from __future__ import annotations
 
-from fastapi import Request, HTTPException, Response
+import math
+from datetime import date, datetime, timedelta, timezone
+
+from fastapi import HTTPException, Request, Response
 
 
 def get_engine_and_dir(request: Request, scenario: str):
@@ -20,20 +23,62 @@ def add_cache_headers(response: Response, end_date: str | None, today_iso: str) 
         response.headers["Cache-Control"] = "public, max-age=300"
 
 
-def to_utc_iso(dt_str: str) -> str:
-    """Ensure a datetime string carries an explicit UTC offset.
+def today_iso() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
 
-    Several CSV inputs (predictions_DA_hourly, predictions_train) encode
-    UTC instants but emit them naive (e.g. '2026-03-25 00:00'). JS Date
-    parses naive strings as local time, which silently collapses two
-    distinct UTC instants at DST transitions. Idempotent for strings
-    that already carry a tz marker.
+
+def auto_resolution(start: str, end: str) -> str:
+    """Pick a sane bucket size from the requested range."""
+    try:
+        days = (date.fromisoformat(end[:10]) - date.fromisoformat(start[:10])).days
+    except ValueError:
+        return "hourly"
+    if days <= 7:
+        return "15min"
+    if days <= 90:
+        return "hourly"
+    return "daily"
+
+
+def end_exclusive(end: str) -> str:
+    """Promote an inclusive 'YYYY-MM-DD' end date to the next-day bound.
+
+    API `end` params mean "include this whole calendar day". Comparing
+    `col <= '2026-03-25'` against a timestamp column resolves the bare date
+    to midnight and silently drops every intra-day row of the final day, so
+    query with `col < end_exclusive(end)` instead. Non-date strings pass
+    through unchanged.
     """
-    if not dt_str:
-        return dt_str
-    # Already has a marker: trailing 'Z' or [+-]HH:MM at the end.
-    if dt_str.endswith("Z"):
-        return dt_str
-    if len(dt_str) >= 6 and dt_str[-6] in "+-" and dt_str[-3] == ":":
-        return dt_str
-    return dt_str + "+00:00"
+    try:
+        return (date.fromisoformat(end[:10]) + timedelta(days=1)).isoformat()
+    except ValueError:
+        return end
+
+
+def nan_to_none(v):
+    """Convert NaN/NA pandas values to None for JSON serialization."""
+    if v is None:
+        return None
+    try:
+        if math.isnan(float(v)):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
+def iso_utc(value) -> str:
+    """Emit a strict ISO-8601 UTC datetime string: 'T' separator + offset.
+
+    Space-separated datetimes are rejected by JavaScriptCore's `new Date()`
+    (Safari), and naive strings get parsed as local time, which collapses
+    two distinct UTC instants at DST transitions. Accepts datetime-likes
+    (uses .isoformat()) and strings; idempotent for already-conformant
+    input. Date-only strings pass through without a bogus offset.
+    """
+    s = value.isoformat() if hasattr(value, "isoformat") else str(value).replace(" ", "T", 1)
+    if not s or "T" not in s:
+        return s
+    if s.endswith("Z") or (len(s) >= 6 and s[-6] in "+-" and s[-3] == ":"):
+        return s
+    return s + "+00:00"

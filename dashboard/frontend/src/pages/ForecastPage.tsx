@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { UTCTimestamp } from 'lightweight-charts'
 import { api } from '../api/client'
 import { useFilterStore } from '../store/filterStore'
 import { useChartRange } from '../hooks/useChartRange'
@@ -12,22 +11,15 @@ import TradingViewChart, { type TradingViewSeries } from '../components/charts/T
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
 import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import { fmtEur, fmtKeur } from '../lib/format'
+import { toSeriesPoints } from '../lib/series'
 import PageShell from '../components/common/PageShell'
 
 const TARGET_YEARS = [2025, 2030, 2040, 2050]
 
-function fmtEur(v: number | undefined): string {
-  if (v == null || isNaN(v)) return '—'
-  return v.toFixed(1)
-}
-
-function fmtKeur(v: number | undefined): string {
-  if (v == null || isNaN(v)) return '—'
-  return (v / 1000).toFixed(1)
-}
-
 export default function ForecastPage() {
-  const { scenario, dateRange } = useFilterStore()
+  const scenario = useFilterStore((s) => s.scenario)
+  const dateRange = useFilterStore((s) => s.dateRange)
 
   // chartRange follows dateRange but lets chart-zoom override it so the
   // backend can refetch at higher resolution. See ElectricityPage for the
@@ -81,20 +73,18 @@ export default function ForecastPage() {
     },
   ]
 
-  // DA Forecast chart series
-  const forecastSeries: TradingViewSeries[] = []
-  if (forecastData) {
-    // Actual prices (may be null for future)
-    const actualPoints = forecastData.datetime
-      .map((dt, i) => ({
-        time: (new Date(dt).getTime() / 1000) as UTCTimestamp,
-        value: forecastData.price_actual[i],
-      }))
-      .filter((p) => p.value != null) as { time: UTCTimestamp; value: number }[]
+  // DA Forecast chart series. Memoized: an unmemoized series array gets a
+  // new identity on every render, which makes TradingViewChart tear down
+  // and rebuild all series and snap the zoom back via fitContent().
+  const forecastSeries: TradingViewSeries[] = useMemo(() => {
+    if (!forecastData) return []
+    const series: TradingViewSeries[] = []
 
+    // Actual prices (may be null for future)
+    const actualPoints = toSeriesPoints(forecastData.datetime, forecastData.price_actual)
     if (actualPoints.length > 0) {
-      forecastSeries.push({
-        data: actualPoints.sort((a, b) => a.time - b.time),
+      series.push({
+        data: actualPoints,
         color: '#D4A574',
         lineWidth: 1,
         title: 'Actual',
@@ -103,16 +93,9 @@ export default function ForecastPage() {
     }
 
     // Predicted prices
-    const predictedPoints = forecastData.datetime
-      .map((dt, i) => ({
-        time: (new Date(dt).getTime() / 1000) as UTCTimestamp,
-        value: forecastData.price_predicted[i],
-      }))
-      .filter((p) => p.value != null && !isNaN(p.value))
-      .sort((a, b) => a.time - b.time)
-
+    const predictedPoints = toSeriesPoints(forecastData.datetime, forecastData.price_predicted)
     if (predictedPoints.length > 0) {
-      forecastSeries.push({
+      series.push({
         data: predictedPoints,
         color: '#60A5FA',
         lineWidth: 1,
@@ -120,7 +103,8 @@ export default function ForecastPage() {
         type: 'line',
       })
     }
-  }
+    return series
+  }, [forecastData])
 
   // Annual statistics ECharts bar chart
   const annualStatsOption: EChartsOption = useMemo(() => ({

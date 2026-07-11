@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -53,18 +54,28 @@ class DataEngine:
     def __init__(self, settings: Settings):
         self._settings = settings
         # Connect to a transient DB; ATTACH the on-disk DuckDB read-only.
-        # Why ATTACH not direct connect: lets us register temp tables for
-        # forecast .feather files alongside on-disk data without touching it.
+        # Why ATTACH not direct connect: lets us keep sidecar tables (below)
+        # alongside on-disk data without touching it.
         self._conn = duckdb.connect()
         self._conn.execute(
             f"ATTACH '{settings.duckdb_path}' AS db (READ_ONLY)"
         )
-        self._conn.execute("USE db")
-        # Pin tz to UTC per project convention
+        # Sidecar CSVs get their own attached in-memory catalog rather than
+        # TEMP tables: TEMP objects are session-local and invisible to the
+        # per-call cursors that make concurrent request handling safe.
+        self._conn.execute("ATTACH ':memory:' AS sidecars")
+        # Pin tz to UTC per project convention (init-time queries only;
+        # request-time cursors set their own session state in _cursor()).
         self._conn.execute("SET TimeZone='UTC'")
+        self._conn.execute("SET search_path='db,sidecars'")
 
         # Discover model results
         self._model_dir = settings.model_results_dir
+        if not self._model_dir.is_dir():
+            logger.warning(
+                "model_results_dir %s does not exist — no models or forecast "
+                "scenarios will be available", self._model_dir,
+            )
         self._latest_production = self._find_latest_dir("Production_Ensemble_")
         self._forecast_dirs = self._discover_forecasts()
 
@@ -85,6 +96,8 @@ class DataEngine:
         return None
 
     def _find_latest_dir(self, prefix: str) -> Path | None:
+        if not self._model_dir.is_dir():
+            return None
         candidates = []
         for d in self._model_dir.iterdir():
             if d.is_dir() and d.name.startswith(prefix):
@@ -98,6 +111,8 @@ class DataEngine:
 
     def _discover_forecasts(self) -> dict[str, Path]:
         """Returns {scenario_key: path} for all forecast dirs, keeping latest per scenario."""
+        if not self._model_dir.is_dir():
+            return {}
         scenario_map: dict[str, tuple[datetime, Path]] = {}
         for d in self._model_dir.iterdir():
             if not (d.is_dir() and d.name.startswith("Forecast_")):
@@ -146,8 +161,8 @@ class DataEngine:
             self._small_files_cache["feature_list"] = fl_path.read_text().strip().split("\n")
 
     def _try_register_eur_usd(self, settings: Settings) -> bool:
-        """Resolve the eur_usd_path glob and register the CSV as a DuckDB
-        temp table named 'eur_usd' (columns: date DATE, USD_per_EUR DOUBLE).
+        """Resolve the eur_usd_path glob and register the CSV as the table
+        'sidecars.eur_usd' (columns: date DATE, USD_per_EUR DOUBLE).
         Returns True if a file was found and registered, False otherwise.
         """
         from glob import glob
@@ -160,9 +175,9 @@ class DataEngine:
         try:
             self._conn.execute(
                 f"""
-                CREATE TEMP TABLE eur_usd AS
+                CREATE TABLE sidecars.eur_usd AS
                 SELECT CAST(datetime_UTC AS DATE) AS date,
-                       USD_per_EUR
+                       CAST(USD_per_EUR AS DOUBLE) AS USD_per_EUR
                 FROM read_csv_auto('{csv}')
                 """
             )
@@ -176,7 +191,7 @@ class DataEngine:
         return self._eur_usd_registered
 
     def _try_register_coal_api2(self, settings: Settings) -> bool:
-        """Register the Coal API2 daily CSV as DuckDB temp table 'coal_api2'.
+        """Register the Coal API2 daily CSV as the table 'sidecars.coal_api2'.
 
         The CSV has columns (datetime_UTC, price_USD_ton, ...); we only
         project what the dashboard needs. Returns True on success.
@@ -191,9 +206,9 @@ class DataEngine:
         try:
             self._conn.execute(
                 f"""
-                CREATE TEMP TABLE coal_api2 AS
+                CREATE TABLE sidecars.coal_api2 AS
                 SELECT CAST(datetime_UTC AS DATE) AS date,
-                       price_USD_ton
+                       CAST(price_USD_ton AS DOUBLE) AS price_USD_ton
                 FROM read_csv_auto('{csv}')
                 """
             )
@@ -220,29 +235,50 @@ class DataEngine:
     def get_cached(self, key: str) -> Any:
         return self._small_files_cache.get(key)
 
+    @contextmanager
+    def _cursor(self):
+        """Per-call cursor over the shared connection.
+
+        A DuckDBPyConnection is not safe for concurrent query execution
+        across threads; cursors are, and they share the attached catalogs.
+        Session state (TimeZone, search_path) is NOT inherited from the
+        parent connection, so it must be re-established per cursor.
+        """
+        cur = self._conn.cursor()
+        try:
+            cur.execute("SET TimeZone='UTC'")
+            cur.execute("SET search_path='db,sidecars'")
+            yield cur
+        finally:
+            cur.close()
+
     def query(self, sql: str, params: list | None = None) -> list[dict]:
-        return _records_from_df(self._conn.execute(sql, params or []).fetchdf())
+        with self._cursor() as cur:
+            return _records_from_df(cur.execute(sql, params or []).fetchdf())
 
     def query_wide(
         self,
         table: str,
         columns: list[str],
         start: str | None = None,
-        end: str | None = None,
+        end_exclusive: str | None = None,
         timestamp_col: str = "timestamp_utc",
     ) -> list[dict]:
-        """Select named wide-schema columns + timestamp, optionally filtered by range."""
+        """Select named wide-schema columns + timestamp, optionally filtered
+        by [start, end_exclusive). Callers with an inclusive calendar-date end
+        promote it via `_helpers.end_exclusive()` first.
+        """
         quoted = ", ".join(f'"{c}"' for c in columns)
         where, params = [], []
         if start is not None:
             where.append(f'"{timestamp_col}" >= ?')
             params.append(start)
-        if end is not None:
-            where.append(f'"{timestamp_col}" <= ?')
-            params.append(end)
+        if end_exclusive is not None:
+            where.append(f'"{timestamp_col}" < ?')
+            params.append(end_exclusive)
         where_sql = ("WHERE " + " AND ".join(where)) if where else ""
         sql = f'SELECT "{timestamp_col}", {quoted} FROM {table} {where_sql} ORDER BY "{timestamp_col}"'
-        return _records_from_df(self._conn.execute(sql, params).fetchdf())
+        return self.query(sql, params)
 
     # Forecast files emit timestamps under inconsistent column names across
     # versions: 'Datetime_UTC' (v17 csv), 'datetime_UTC' (some lowercase),
@@ -259,14 +295,16 @@ class DataEngine:
         scenario: str,
         filename_pattern: str,
         start: str | None = None,
-        end: str | None = None,
+        end_exclusive: str | None = None,
         datetime_col: str | tuple[str, ...] | None = None,
     ) -> list[dict]:
-        """Query a forecast .feather or .csv file from a scenario directory.
+        """Query a forecast .feather or .csv file from a scenario directory,
+        filtered to [start, end_exclusive). Callers with an inclusive
+        calendar-date end promote it via `_helpers.end_exclusive()` first.
 
         NOTE: DuckDB read_parquet() CANNOT read .feather (Arrow IPC) files.
         Feather files are loaded via pandas.read_feather() and registered as
-        temporary DuckDB tables for SQL filtering.
+        cursor-local DuckDB tables for SQL filtering.
 
         Returns [] when the file or expected datetime column is missing
         (so callers don't need to special-case partial scenario dirs).
@@ -287,10 +325,10 @@ class DataEngine:
         else:
             candidates = tuple(datetime_col)
 
-        # Register either source as a pandas-backed temp table so the SQL
-        # below never f-strings a file path. Eliminates the residual SQL-
-        # injection vector if `filename_pattern` ever comes from user input
-        # (today all callers pass literals, but defence in depth is cheap).
+        # Register either source as a pandas-backed table so the SQL below
+        # never f-strings a file path. Eliminates the residual SQL-injection
+        # vector if `filename_pattern` ever comes from user input (today all
+        # callers pass literals, but defence in depth is cheap).
         if feather_matches:
             df = pd.read_feather(feather_matches[0])
         elif csv_matches:
@@ -302,32 +340,23 @@ class DataEngine:
         if actual_col is None:
             return []
 
-        # Use a UUID-based table name so concurrent requests can't collide.
-        import uuid
-        table_name = f"_tmp_{uuid.uuid4().hex[:12]}"
-        self._conn.register(table_name, df)
-        read_fn = table_name
-
         where_parts = []
         params = []
         if start:
             where_parts.append(f'"{actual_col}" >= ?')
             params.append(start)
-        if end:
-            where_parts.append(f'"{actual_col}" <= ?')
-            params.append(end)
+        if end_exclusive:
+            where_parts.append(f'"{actual_col}" < ?')
+            params.append(end_exclusive)
 
         where_clause = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        sql = f'SELECT * FROM _forecast_src {where_clause} ORDER BY "{actual_col}"'
 
-        sql = f'SELECT * FROM {read_fn} {where_clause} ORDER BY "{actual_col}"'
-        try:
-            return _records_from_df(self._conn.execute(sql, params).fetchdf())
-        finally:
-            # Don't leak registered temp tables across requests.
-            try:
-                self._conn.unregister(table_name)
-            except Exception:
-                pass
+        # The registration is cursor-local, so concurrent requests can't
+        # collide on the name and nothing leaks past the cursor's lifetime.
+        with self._cursor() as cur:
+            cur.register("_forecast_src", df)
+            return _records_from_df(cur.execute(sql, params).fetchdf())
 
     def close(self):
         self._conn.close()

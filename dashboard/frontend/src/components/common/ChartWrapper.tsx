@@ -28,11 +28,39 @@ function downloadCsv(data: Record<string, unknown>[], filename: string) {
 }
 
 function captureCanvas(container: HTMLElement, filename: string) {
-  const canvas = container.querySelector('canvas')
-  if (!canvas) return
+  // lightweight-charts renders series, price axis and time axis on separate
+  // stacked canvases; exporting only the first one drops the axes. Composite
+  // every canvas at its on-screen offset instead (ECharts' single canvas is
+  // just the trivial case).
+  const canvases = Array.from(container.querySelectorAll('canvas'))
+  if (canvases.length === 0) return
+
+  const containerRect = container.getBoundingClientRect()
+  const dpr = window.devicePixelRatio || 1
+  const out = document.createElement('canvas')
+  out.width = Math.round(containerRect.width * dpr)
+  out.height = Math.round(containerRect.height * dpr)
+  const ctx = out.getContext('2d')
+  if (!ctx) return
+
+  ctx.fillStyle =
+    getComputedStyle(container).getPropertyValue('--bg-surface').trim() || '#0B1220'
+  ctx.fillRect(0, 0, out.width, out.height)
+
+  for (const canvas of canvases) {
+    const rect = canvas.getBoundingClientRect()
+    ctx.drawImage(
+      canvas,
+      Math.round((rect.left - containerRect.left) * dpr),
+      Math.round((rect.top - containerRect.top) * dpr),
+      Math.round(rect.width * dpr),
+      Math.round(rect.height * dpr),
+    )
+  }
+
   const link = document.createElement('a')
   link.download = `${filename}.png`
-  link.href = canvas.toDataURL('image/png')
+  link.href = out.toDataURL('image/png')
   link.click()
 }
 

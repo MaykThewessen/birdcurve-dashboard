@@ -204,7 +204,9 @@ export default function MLPage() {
     const minR = Math.min(...residuals)
     const maxR = Math.max(...residuals)
     const nBins = 50
-    const binWidth = (maxR - minR) / nBins
+    // Degenerate case: all residuals identical → binWidth 0 would make the
+    // bin index NaN and the normal overlay divide by zero.
+    const binWidth = maxR > minR ? (maxR - minR) / nBins : 1
 
     // Build bins
     const bins = Array.from({ length: nBins }, (_, i) => ({
@@ -216,16 +218,18 @@ export default function MLPage() {
       if (idx >= 0) bins[idx].count++
     }
 
-    // Normal distribution overlay
+    // Normal distribution overlay (skipped when variance is zero)
     const mean = residuals.reduce((a, b) => a + b, 0) / residuals.length
     const std = Math.sqrt(
       residuals.reduce((a, b) => a + (b - mean) ** 2, 0) / residuals.length,
     )
-    const normLine = bins.map(({ x }) => {
-      const y = (residuals.length * binWidth * Math.exp(-0.5 * ((x - mean) / std) ** 2)) /
-        (std * Math.sqrt(2 * Math.PI))
-      return [x, y]
-    })
+    const normLine = std > 0
+      ? bins.map(({ x }) => {
+          const y = (residuals.length * binWidth * Math.exp(-0.5 * ((x - mean) / std) ** 2)) /
+            (std * Math.sqrt(2 * Math.PI))
+          return [x, y]
+        })
+      : []
 
     return {
       grid: { top: 30, right: 20, bottom: 50, left: 60, containLabel: false },

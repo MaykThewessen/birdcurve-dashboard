@@ -29,11 +29,23 @@ All timestamps are stored UTC and emitted tz-aware (`+00:00` suffix). The data l
 - **Charts** — ECharts for analytics, TradingView lightweight-charts for time series
 - **Code-splitting** — per-page lazy routes; ECharts in its own vendor chunk
 
-## Database
+## Data layer
 
-Single read-only DuckDB file (`BIRDCURVE_DB_PATH`). Tables:
+Single read-only DuckDB file (`BIRDCURVE_DUCKDB_PATH`), attached by
+`DataEngine` alongside an in-memory `sidecars` catalog for the optional
+EUR/USD and Coal API2 CSVs. Every request runs on its own DuckDB cursor
+(the shared connection is not safe for concurrent queries) inside FastAPI's
+threadpool, keeping the event loop free during large scans.
 
-- `ts_hourly` — hourly DA prices + load/gen mix (some 15-min granularity mixed in)
+DuckDB tables:
+
+- `ts_15min` — 15-minute load, PV, wind, cross-border, imbalance prices
+- `ts_hourly` — hourly DA prices (15-min-aligned rows mixed in from 2025-09-30; consumers filter to `:00`)
+- `ts_4hourly` — aFRR/FCR capacity prices and volumes per auction block
 - `ts_daily` — Gas TTF, CO₂ EUA daily settles
-- `forecast_*` — BirdCurve NL outputs, one CSV per scenario
-- `ml_predictions` — held-out predictions for diagnostics
+- `provenance` — per-(table, source) ingestion bookkeeping for `/api/data-status`
+
+File-based artifacts under `BIRDCURVE_MODEL_RESULTS_DIR` (not DuckDB tables):
+
+- `Production_Ensemble_<ts>/` — metrics.json, feature list, LightGBM booster, `predictions_{training,validation}.csv`
+- `Forecast_<ts>_vNN_<Scenario>/` — per-scenario forecast CSV/feather/xlsx files, discovered at startup and re-read per request

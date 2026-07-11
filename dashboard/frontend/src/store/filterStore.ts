@@ -5,11 +5,9 @@ interface FilterState {
   dateRange: { start: string; end: string }
   scenario: string
   theme: 'system' | 'dark' | 'light'
-  crosshairTimestamp: number | null
   setDateRange: (start: string, end: string) => void
   setScenario: (s: string) => void
   setTheme: (t: 'system' | 'dark' | 'light') => void
-  setCrosshairTimestamp: (ts: number | null) => void
 }
 
 // Default to the last 60 days so first-paint queries are small. Charts
@@ -24,9 +22,7 @@ export const useFilterStore = create<FilterState>((set) => ({
   },
   scenario: '',
   theme: 'dark',
-  crosshairTimestamp: null,
   setDateRange: (start, end) => set({ dateRange: { start, end } }),
   setScenario: (scenario) => set({ scenario }),
   setTheme: (theme) => set({ theme }),
-  setCrosshairTimestamp: (crosshairTimestamp) => set({ crosshairTimestamp }),
 }))

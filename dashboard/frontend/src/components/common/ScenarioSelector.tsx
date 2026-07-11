@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown } from 'lucide-react'
 import { api } from '../../api/client'
@@ -9,28 +9,28 @@ interface ScenarioSelectorProps {
 }
 
 export default function ScenarioSelector({ className = '' }: ScenarioSelectorProps) {
-  const { scenario, setScenario } = useFilterStore()
+  const scenario = useFilterStore((s) => s.scenario)
+  const setScenario = useFilterStore((s) => s.setScenario)
 
   const { data } = useQuery({
     queryKey: ['scenarios-list'],
     queryFn: () => api.scenariosList(),
   })
 
-  // Auto-select the first scenario when the list loads, using the
-  // during-render reset pattern instead of useEffect+setState — React 19
-  // (react-hooks/set-state-in-effect) treats the latter as the same
-  // anti-pattern that hung the dashboard previously. Tracking the previous
-  // scenarios-list reference lets us trigger the auto-select exactly once
-  // per fetched list, not on every render.
-  const [seenList, setSeenList] = useState<string[] | null>(null)
-  if (data?.scenarios && data.scenarios !== seenList) {
-    setSeenList(data.scenarios)
-    if (!scenario && data.scenarios.length > 0) {
-      setScenario(data.scenarios[0])
+  // Auto-select the first scenario once the list loads. This must happen in
+  // an effect, not during render: writing to the shared zustand store while
+  // rendering synchronously notifies every other subscribed component and
+  // trips React's "cannot update a component while rendering a different
+  // component" warning. Reading the current scenario via getState() keeps
+  // the effect keyed on the fetched list only, so it can't loop.
+  const fetchedScenarios = data?.scenarios
+  useEffect(() => {
+    if (fetchedScenarios?.length && !useFilterStore.getState().scenario) {
+      setScenario(fetchedScenarios[0])
     }
-  }
+  }, [fetchedScenarios, setScenario])
 
-  const scenarios = data?.scenarios ?? []
+  const scenarios = fetchedScenarios ?? []
 
   return (
     <div className={`relative ${className}`}>

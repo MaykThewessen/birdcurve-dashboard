@@ -2,34 +2,23 @@
 from __future__ import annotations
 
 import logging
-import math
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 
-from ..downsampling import lttb_downsample
-from ._helpers import get_engine_and_dir, add_cache_headers
+from ..downsampling import lttb_by_index
+from ._helpers import (
+    add_cache_headers,
+    end_exclusive,
+    get_engine_and_dir,
+    iso_utc,
+    nan_to_none as _safe,
+    today_iso,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ancillary", tags=["ancillary"])
-
-
-def _today_iso() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
-
-
-def _safe(v):
-    """Convert NaN/NA pandas values to None for JSON serialization."""
-    if v is None:
-        return None
-    try:
-        if math.isnan(float(v)):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return v
 
 
 def _avg(a, b):
@@ -74,10 +63,10 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
                "FCR_capacity_volume__Up"      AS fcr_vol_up,
                "FCR_capacity_volume__Down"    AS fcr_vol_down
         FROM ts_4hourly
-        WHERE timestamp_utc >= ? AND timestamp_utc <= ?
+        WHERE timestamp_utc >= ? AND timestamp_utc < ?
         ORDER BY timestamp_utc
         ''',
-        [start, end],
+        [start, end_exclusive(end)],
     )
 
     capacity_keys = (
@@ -92,7 +81,7 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
     for r in hist_rows:
         if all(_safe(r[k]) is None for k in capacity_keys):
             continue
-        dt_str = str(r["dt"])
+        dt_str = iso_utc(r["dt"])
         seen_dts.add(dt_str)
         latest_hist_dt = dt_str
         result.append({
@@ -128,7 +117,7 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
             forecast_data = engine.query_forecast_file(
                 scenario,
                 "predictions_aFRR_FCR_capacity_4h_2023_2050",
-                start, end,  # full range, so we can compute the scale
+                start, end_exclusive(end),  # full range, so we can compute the scale
                 datetime_col="datetime",
             )
         except Exception:
@@ -151,7 +140,7 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
         }
 
         for d in forecast_data:
-            dt_str = str(d.get("datetime", ""))
+            dt_str = iso_utc(d.get("datetime", ""))
             day = dt_str[:10]
             hist = hist_lookup.get(day)
             if not hist:
@@ -176,7 +165,7 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
 
         # Apply the inverse scale to forecast values past the pivot.
         for d in forecast_data:
-            dt_str = str(d.get("datetime", ""))
+            dt_str = iso_utc(d.get("datetime", ""))
             if not dt_str or dt_str in seen_dts or dt_str[:10] <= forecast_pivot:
                 continue
             seen_dts.add(dt_str)
@@ -202,13 +191,7 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
             })
 
     result.sort(key=lambda r: r["datetime"])
-
-    if len(result) > max_points:
-        for i, d in enumerate(result):
-            d["_idx"] = i
-        result = lttb_downsample(result, "_idx", "afrr_cap_up", max_points)
-        for d in result:
-            d.pop("_idx", None)
+    result = lttb_by_index(result, "afrr_cap_up", max_points)
 
     return {
         "datetime":      [r["datetime"]      for r in result],
@@ -240,7 +223,7 @@ async def get_capacity(
     payload = await run_in_threadpool(
         _get_capacity_sync, engine, scenario, start, end, max_points
     )
-    add_cache_headers(response, end, _today_iso())
+    add_cache_headers(response, end, today_iso())
     return payload
 
 
@@ -259,10 +242,10 @@ def _get_imbalance_prices_sync(engine, start: str, end: str, max_points: int):
                "Imbalance_NL__Price_imb_long"             AS imb_long,
                "Imbalance_NL__Price_imb_short"            AS imb_short
         FROM ts_15min
-        WHERE timestamp_utc >= ? AND timestamp_utc <= ?
+        WHERE timestamp_utc >= ? AND timestamp_utc < ?
         ORDER BY timestamp_utc
         ''',
-        [start, end],
+        [start, end_exclusive(end)],
     )
 
     keys = ("afrr_energy_up", "afrr_energy_down", "imb_long", "imb_short")
@@ -271,7 +254,7 @@ def _get_imbalance_prices_sync(engine, start: str, end: str, max_points: int):
         if all(_safe(r[k]) is None for k in keys):
             continue
         series.append({
-            "timestamp": str(r["dt"]),
+            "timestamp": iso_utc(r["dt"]),
             "afrr_energy_up":   _safe(r["afrr_energy_up"]),
             "afrr_energy_down": _safe(r["afrr_energy_down"]),
             "imb_long":         _safe(r["imb_long"]),
@@ -280,12 +263,10 @@ def _get_imbalance_prices_sync(engine, start: str, end: str, max_points: int):
 
     # Server-side LTTB downsample on the most-likely-non-null field.
     if len(series) > max_points:
-        for i, d in enumerate(series):
-            d["_idx"] = i
-            d["_y"] = d["imb_short"] if d["imb_short"] is not None else (d["imb_long"] or 0.0)
-        series = lttb_downsample(series, "_idx", "_y", max_points)
         for d in series:
-            d.pop("_idx", None)
+            d["_y"] = d["imb_short"] if d["imb_short"] is not None else (d["imb_long"] or 0.0)
+        series = lttb_by_index(series, "_y", max_points)
+        for d in series:
             d.pop("_y", None)
 
     return {
@@ -310,7 +291,7 @@ async def get_imbalance_prices(
     payload = await run_in_threadpool(
         _get_imbalance_prices_sync, engine, start, end, max_points
     )
-    add_cache_headers(response, end, _today_iso())
+    add_cache_headers(response, end, today_iso())
     return payload
 
 
@@ -335,6 +316,7 @@ async def get_revenue(
 
 def _get_regulation_states_sync(engine, scenario: str, year: int):
     start = f"{year}-01-01"
+    # Already an exclusive bound: the year+1 midnight row belongs to year+1.
     end = f"{year + 1}-01-01"
 
     data = engine.query_forecast_file(
@@ -345,7 +327,7 @@ def _get_regulation_states_sync(engine, scenario: str, year: int):
     )
 
     if not data:
-        return {"states": [], "year": year}
+        return {"states": [], "year": year, "total_intervals": 0}
 
     state_counts: dict[int, int] = {}
     total = 0

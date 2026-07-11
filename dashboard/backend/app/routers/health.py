@@ -1,24 +1,32 @@
 """Health check endpoint."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+import logging
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
 from ..models import HealthResponse
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["health"])
 
+# All tables the dashboard reads from — including ts_4hourly (ancillary
+# capacity) and provenance (data-status), so health can't look green while
+# either of those is empty or missing.
+_HEALTH_TABLES = ["ts_15min", "ts_hourly", "ts_4hourly", "ts_daily", "provenance"]
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check(request: Request) -> HealthResponse:
-    engine = getattr(request.app.state, "engine", None)
-    if engine is None:
-        from fastapi import HTTPException
-        raise HTTPException(503, "Engine not yet initialized")
 
+def _health_sync(engine) -> HealthResponse:
     table_counts = {}
-    for table in ["ts_15min", "ts_hourly", "ts_daily"]:
-        rows = engine.query(f"SELECT COUNT(*) as n FROM {table}")
-        table_counts[table] = rows[0]["n"] if rows else 0
+    for table in _HEALTH_TABLES:
+        try:
+            rows = engine.query(f"SELECT COUNT(*) as n FROM {table}")
+            table_counts[table] = rows[0]["n"] if rows else 0
+        except Exception:
+            logger.warning("health check: table %s not readable", table, exc_info=True)
+            table_counts[table] = 0
 
     prod = engine.latest_production_model
     scenarios = engine.available_scenarios
@@ -33,3 +41,11 @@ async def health_check(request: Request) -> HealthResponse:
         scenarios=scenarios,
         db_tables=table_counts,
     )
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health_check(request: Request) -> HealthResponse:
+    engine = getattr(request.app.state, "engine", None)
+    if engine is None:
+        raise HTTPException(503, "Engine not yet initialized")
+    return await run_in_threadpool(_health_sync, engine)

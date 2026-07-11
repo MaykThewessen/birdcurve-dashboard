@@ -10,7 +10,7 @@ import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
 import PageShell from '../components/common/PageShell'
 
 export default function ScenariosPage() {
-  const { scenario } = useFilterStore()
+  const scenario = useFilterStore((s) => s.scenario)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['scenario', scenario],

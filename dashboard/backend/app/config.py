@@ -27,8 +27,6 @@ class Settings(BaseSettings):
     )
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:5173"]
-    default_max_points_hourly: int = 5000
-    default_max_points_15min: int = 10000
 
     model_config = SettingsConfigDict(env_prefix="BIRDCURVE_", env_file=".env", extra="ignore")
 

@@ -4,23 +4,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Response
+from fastapi.concurrency import run_in_threadpool
+
+from ._helpers import iso_utc
 
 router = APIRouter(prefix="/data-status", tags=["data-status"])
 
 
-@router.get("")
-async def get_data_status(request: Request, response: Response):
-    """Per-source ingestion + data freshness from the provenance table.
-
-    Returns one row per (table, source) with the latest data timestamp,
-    when it was last ingested, the resulting lag in hours, and a status
-    bucket (fresh / warn / stale) so the UI can colour-code at a glance.
-
-    Provenance comes from a sister table the upstream BirdCurve NL pipeline
-    populates after each ingestion run; previously the dashboard ignored it.
-    """
-    engine = request.app.state.engine
-
+def _data_status_sync(engine) -> dict:
     rows = engine.query(
         """
         SELECT table_name, source,
@@ -54,8 +45,8 @@ async def get_data_status(request: Request, response: Response):
         sources.append({
             "table": r["table_name"],
             "source": r["source"],
-            "latest_data_utc": str(latest),
-            "last_ingest_utc": str(ingested) if ingested else None,
+            "latest_data_utc": iso_utc(latest),
+            "last_ingest_utc": iso_utc(ingested) if ingested else None,
             "lag_hours": round(lag_hours, 1),
             "rows_total": r["rows_total"],
             "status": status,
@@ -65,9 +56,25 @@ async def get_data_status(request: Request, response: Response):
     for s in sources:
         counts[s["status"]] += 1
 
-    response.headers["Cache-Control"] = "public, max-age=300"
     return {
         "as_of_utc": now.isoformat(),
         "sources": sources,
         "summary": counts,
     }
+
+
+@router.get("")
+async def get_data_status(request: Request, response: Response):
+    """Per-source ingestion + data freshness from the provenance table.
+
+    Returns one row per (table, source) with the latest data timestamp,
+    when it was last ingested, the resulting lag in hours, and a status
+    bucket (fresh / warn / stale) so the UI can colour-code at a glance.
+
+    Provenance comes from a sister table the upstream BirdCurve NL pipeline
+    populates after each ingestion run; previously the dashboard ignored it.
+    """
+    engine = request.app.state.engine
+    payload = await run_in_threadpool(_data_status_sync, engine)
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return payload

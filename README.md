@@ -24,7 +24,7 @@ The app is organized into six pages, each backed by its own FastAPI router and R
 
 ![Commodities page](docs/screenshots/page-commodities.png)
 
-Live Gas TTF, CO₂ EUA, Coal API2 and EUR/USD with KPI cards and 30-day deltas — toggle the **Marginal Costs** overlay to see how fuel + carbon translate into the cost of the next MWh on the grid (CCGT @ 40% efficiency, coal @ 46%).
+Live Gas TTF, CO₂ EUA, Coal API2 and EUR/USD with KPI cards and day-over-day deltas — toggle the **Marginal Costs** overlay to see how fuel + carbon translate into the cost of the next MWh on the grid (CCGT @ 58% LHV efficiency incl. HHV→LHV conversion, coal @ 46%).
 
 ### Electricity — supply, demand & cross-border flows
 
@@ -107,6 +107,8 @@ All settings are read from environment variables (or a `.env` file in `dashboard
 | `BIRDCURVE_DUCKDB_PATH` | `/Users/mayk/birdcurve_nl/data/birdcurve.duckdb` | Path to the read-only DuckDB file. |
 | `BIRDCURVE_MODEL_RESULTS_DIR` | `/Users/mayk/birdcurve_nl/model_results` | Directory containing `Production_Ensemble_*` and `Forecast_*` subdirectories. |
 | `BIRDCURVE_HISTORICAL_FEATURES_PATH` | `/Users/mayk/birdcurve_nl/Historical_data_features_engineered_*.parquet` | Glob pattern for the parquet feeding the ML correlation matrix endpoint. |
+| `BIRDCURVE_EUR_USD_PATH` | `/Users/mayk/birdcurve_nl/Coal/EUR_USD_daily_*.csv` | Optional glob for the EUR/USD daily CSV sidecar; series/KPI degrade to empty when absent. |
+| `BIRDCURVE_COAL_API2_PATH` | `/Users/mayk/birdcurve_nl/Coal/commodity_coal_API2_daily_*.csv` | Optional glob for the Coal API2 daily CSV sidecar; same fallback semantics. |
 | `BIRDCURVE_CORS_ORIGINS` | `["http://localhost:5173"]` | JSON array of allowed frontend origins. |
 
 ## Schema requirement

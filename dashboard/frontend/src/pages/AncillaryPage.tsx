@@ -11,6 +11,8 @@ import TradingViewChart, { type TradingViewSeries } from '../components/charts/T
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
 import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import { fmtEur, fmtKeur } from '../lib/format'
+import { toSeriesPoints } from '../lib/series'
 import PageShell from '../components/common/PageShell'
 
 // State labels and colors for regulation donut
@@ -21,18 +23,10 @@ const STATE_CONFIG: Record<number, { label: string; color: string }> = {
   [2]: { label: 'Mixed', color: '#A78BFA' },
 }
 
-function fmtKeur(v: number | undefined): string {
-  if (v == null || isNaN(v)) return '—'
-  return (v / 1000).toFixed(1)
-}
-
-function fmtEur(v: number | undefined): string {
-  if (v == null || isNaN(v)) return '—'
-  return v.toFixed(2)
-}
 
 export default function AncillaryPage() {
-  const { scenario, dateRange } = useFilterStore()
+  const scenario = useFilterStore((s) => s.scenario)
+  const dateRange = useFilterStore((s) => s.dateRange)
   const [selectedYear, setSelectedYear] = useState<number>(2025)
   // BESS revenue stacking is misleading by default — the same MW can't
   // simultaneously earn aFRR cap, FCR cap, AND aFRR energy. 'split-mw'
@@ -80,12 +74,12 @@ export default function AncillaryPage() {
   const kpiCards = [
     {
       title: 'aFRR Cap Price (latest)',
-      value: fmtEur(latestCapacity(capacityData?.afrr_cap_up)),
+      value: fmtEur(latestCapacity(capacityData?.afrr_cap_up), 2),
       unit: 'EUR/MW/h',
     },
     {
       title: 'FCR Cap Price (latest)',
-      value: fmtEur(latestCapacity(capacityData?.fcr_cap_price)),
+      value: fmtEur(latestCapacity(capacityData?.fcr_cap_price), 2),
       unit: 'EUR/MW/h',
     },
     {
@@ -104,8 +98,9 @@ export default function AncillaryPage() {
   // (forecast) sub-series so the boundary is readable on the chart. The
   // last historical point is repeated as the first forecast point so the
   // dashed line picks up cleanly where the solid one ends (no visual gap).
-  const capacitySeries: TradingViewSeries[] = []
-  if (capacityData && capacityData.datetime.length > 0) {
+  // Memoized so re-renders don't rebuild the chart and reset zoom.
+  const capacitySeries: TradingViewSeries[] = useMemo(() => {
+    if (!capacityData || capacityData.datetime.length === 0) return []
     const sources = capacityData.data_source ?? []
     const lastHistIdx = sources.lastIndexOf('historical')
 
@@ -130,6 +125,7 @@ export default function AncillaryPage() {
       return out.sort((a, b) => a.time - b.time)
     }
 
+    const series: TradingViewSeries[] = []
     const metrics: { key: keyof typeof capacityData; color: string; title: string }[] = [
       { key: 'afrr_cap_up', color: '#D4A574', title: 'aFRR Cap Up' },
       { key: 'afrr_cap_down', color: '#60A5FA', title: 'aFRR Cap Down' },
@@ -139,10 +135,11 @@ export default function AncillaryPage() {
       const arr = capacityData[key] as (number | null)[]
       const hist = toPoints(arr, 'historical')
       const fcst = toPoints(arr, 'forecast')
-      if (hist.length) capacitySeries.push({ data: hist, color, lineWidth: 1, title, type: 'line', lineStyle: 'solid' })
-      if (fcst.length) capacitySeries.push({ data: fcst, color, lineWidth: 1, title: `${title} (forecast)`, type: 'line', lineStyle: 'dashed' })
+      if (hist.length) series.push({ data: hist, color, lineWidth: 1, title, type: 'line', lineStyle: 'solid' })
+      if (fcst.length) series.push({ data: fcst, color, lineWidth: 1, title: `${title} (forecast)`, type: 'line', lineStyle: 'dashed' })
     }
-  }
+    return series
+  }, [capacityData])
 
   // 15-min imbalance + aFRR energy prices — historical-only, no scenario.
   const { data: imbData, isLoading: imbLoading, error: imbError } = useQuery({
@@ -150,24 +147,15 @@ export default function AncillaryPage() {
     queryFn: () => api.imbalancePrices(dateRange.start, dateRange.end),
   })
 
-  const imbalanceSeries: TradingViewSeries[] = []
-  if (imbData && imbData.timestamp.length > 0) {
-    const toImbPoints = (arr: (number | null)[]) =>
-      imbData.timestamp
-        .map((ts, i) => ({
-          time: (new Date(ts).getTime() / 1000) as UTCTimestamp,
-          value: arr[i],
-        }))
-        .filter((p): p is { time: UTCTimestamp; value: number } => p.value != null && !isNaN(p.value))
-        .sort((a, b) => a.time - b.time)
-
-    imbalanceSeries.push(
-      { data: toImbPoints(imbData.afrr_energy_up), color: '#F87171', lineWidth: 1, title: 'aFRR Energy Up', type: 'line' },
-      { data: toImbPoints(imbData.afrr_energy_down), color: '#4ADE80', lineWidth: 1, title: 'aFRR Energy Down', type: 'line' },
-      { data: toImbPoints(imbData.imb_short), color: '#FB923C', lineWidth: 1, title: 'Imb Short', type: 'line' },
-      { data: toImbPoints(imbData.imb_long), color: '#22D3EE', lineWidth: 1, title: 'Imb Long', type: 'line' },
-    )
-  }
+  const imbalanceSeries: TradingViewSeries[] = useMemo(() => {
+    if (!imbData || imbData.timestamp.length === 0) return []
+    return [
+      { data: toSeriesPoints(imbData.timestamp, imbData.afrr_energy_up), color: '#F87171', lineWidth: 1, title: 'aFRR Energy Up', type: 'line' as const },
+      { data: toSeriesPoints(imbData.timestamp, imbData.afrr_energy_down), color: '#4ADE80', lineWidth: 1, title: 'aFRR Energy Down', type: 'line' as const },
+      { data: toSeriesPoints(imbData.timestamp, imbData.imb_short), color: '#FB923C', lineWidth: 1, title: 'Imb Short', type: 'line' as const },
+      { data: toSeriesPoints(imbData.timestamp, imbData.imb_long), color: '#22D3EE', lineWidth: 1, title: 'Imb Long', type: 'line' as const },
+    ]
+  }, [imbData])
 
   // Annual revenue stacked bar
   const revenueOption: EChartsOption = useMemo(() => ({
