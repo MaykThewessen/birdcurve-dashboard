@@ -7,6 +7,7 @@ export interface CommoditiesResponse {
   gas_ttf: CommodityPoint[]
   co2_eua: CommodityPoint[]
   coal_api2: CommodityPoint[]
+  coal_eur_mwh: CommodityPoint[]  // Coal API2 in thermal terms (EUR/MWh_th)
   eur_usd: CommodityPoint[]
   gas_marginal?: CommodityPoint[]
   coal_marginal?: CommodityPoint[]
