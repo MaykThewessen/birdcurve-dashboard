@@ -2,23 +2,35 @@
 
 ## Local development
 
+All tooling is driven by `dashboard/Makefile` (Python and npm come from
+pixi-managed global envs; there is no `pixi.toml` in this repo):
+
 ```bash
-pixi install
-pixi run dev          # backend (:8000) + frontend (:5173) concurrently
+cd dashboard
+make install          # backend deps (pixi global sync) + frontend (npm install)
+make dev              # backend (:8000, granian) + frontend (:5173, vite) concurrently
 ```
 
-Backend env:
+Backend env (see `dashboard/backend/.env.example` for the full list):
 
-- `BIRDCURVE_DB_PATH` — read-only DuckDB file
-- `BIRDCURVE_MODEL_RESULTS_DIR` — BirdCurve NL forecast CSVs
+- `BIRDCURVE_DUCKDB_PATH` — read-only DuckDB file
+- `BIRDCURVE_MODEL_RESULTS_DIR` — BirdCurve NL model/forecast run directories
+- `BIRDCURVE_HISTORICAL_FEATURES_PATH` — engineered-features glob (correlation matrix)
+- `BIRDCURVE_EUR_USD_PATH`, `BIRDCURVE_COAL_API2_PATH` — optional sidecar CSV globs
 
 ## Tests
 
 ```bash
-pixi run test                        # 31 backend integration tests
-pixi run -e frontend npm run lint
-pixi run -e frontend npm run build
+cd dashboard
+make test-backend                    # backend tests (integration tests skip without the live DuckDB)
+
+cd frontend
+npm run lint
+npm run build                        # tsc -b + vite build = the API contract check
 ```
+
+CI (`.github/workflows/ci.yml`) runs the frontend lint + build and the
+backend test suite on every push and pull request.
 
 ## Docs site (this site)
 
