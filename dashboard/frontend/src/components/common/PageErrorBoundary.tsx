@@ -3,7 +3,7 @@ import { AlertTriangle, RotateCw } from 'lucide-react'
 
 interface Props {
   children: ReactNode
-  /** Human label for the boundary (e.g. page name) — surfaced in the fallback. */
+  /** Human label for the boundary (e.g. page name) - surfaced in the fallback. */
   label?: string
 }
 
@@ -17,7 +17,7 @@ interface State {
  * sees a contained warning panel and can refresh that section without a
  * full reload. Wrap each lazy-routed page in one.
  *
- * React 19 still requires a class component for error boundaries — there
+ * React 19 still requires a class component for error boundaries - there
  * is no hook equivalent.
  */
 export default class PageErrorBoundary extends Component<Props, State> {
@@ -61,7 +61,7 @@ export default class PageErrorBoundary extends Component<Props, State> {
                 {error.message || 'An unexpected error occurred while rendering.'}
               </p>
               <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-                Other pages still work — pick one from the sidebar, or retry below.
+                Other pages still work - pick one from the sidebar, or retry below.
               </p>
               <button
                 onClick={this.reset}

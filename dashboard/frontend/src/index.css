@@ -11,74 +11,100 @@
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
-  --color-accent-copper: var(--accent-copper);
-  --color-accent-copper-dim: var(--accent-copper-dim);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-primary-dim: var(--accent-primary-dim);
+  --color-accent-amber: var(--accent-amber);
   --color-accent-green: var(--accent-green);
   --color-accent-red: var(--accent-red);
-  --color-accent-blue: var(--accent-blue);
-  --color-accent-purple: var(--accent-purple);
-  --color-accent-cyan: var(--accent-cyan);
   --font-sans: "Outfit", system-ui, sans-serif;
   --font-data: "JetBrains Mono", ui-monospace, monospace;
 }
 
+/*
+ * Birdview Energy brand tokens (~/BirdKnowledge/birdview-style-guide.md).
+ * Deep navy surfaces, bright blue primary accent, amber used sparingly.
+ * Chart series colors (--chart-1..6) are a fixed-order categorical palette
+ * validated per mode for lightness band, chroma, CVD separation and
+ * contrast against --bg-surface. Never cycle or reorder them.
+ */
 :root {
-  --bg-primary: #0b1222;
-  --bg-surface: #131b2e;
-  --bg-elevated: #1a2540;
-  --bg-hover: #223058;
-  --border-default: #2a3654;
-  --border-bright: #3d4f73;
-  --text-primary: #e8ecf4;
-  --text-secondary: #8896b3;
-  --text-muted: #5a6a8a;
-  --accent-copper: #d4a574;
-  --accent-copper-dim: #a67c52;
+  --bg-primary: #0a0f22;
+  --bg-surface: #101a36;
+  --bg-elevated: #182449;
+  --bg-hover: #20305f;
+  --border-default: #24325c;
+  --border-bright: #3a4c82;
+  --text-primary: #e7ecf7;
+  --text-secondary: #9aa6c2;
+  --text-muted: #6a7795;
+  --accent-primary: #5b6cff;
+  --accent-primary-dim: #3a4ff5;
+  --accent-amber: #ffb020;
   --accent-green: #4ade80;
   --accent-red: #f87171;
-  --accent-blue: #60a5fa;
-  --accent-purple: #a78bfa;
-  --accent-cyan: #22d3ee;
+  --chart-1: #5b6cff;
+  --chart-2: #cc820a;
+  --chart-3: #0095bb;
+  --chart-4: #9d7bf4;
+  --chart-5: #de4e92;
+  --chart-6: #1fa06e;
+  --chart-grid: #182449;
+  --chart-axis: #24325c;
+  --shadow-card: 0 4px 20px rgba(4, 8, 24, 0.45);
 }
 
 @media (prefers-color-scheme: light) {
   :root:not(.dark) {
-    --bg-primary: #f5f3ef;
+    --bg-primary: #eef1fa;
     --bg-surface: #ffffff;
-    --bg-elevated: #f0ede7;
-    --bg-hover: #e8e4dc;
-    --border-default: #d4cfc5;
-    --border-bright: #b8b2a6;
-    --text-primary: #1a1612;
-    --text-secondary: #6b6358;
-    --text-muted: #9b9286;
-    --accent-copper: #b07d4f;
-    --accent-copper-dim: #8a5f38;
+    --bg-elevated: #e7ecf7;
+    --bg-hover: #dde4f5;
+    --border-default: #d5dcee;
+    --border-bright: #b7c2e0;
+    --text-primary: #14213e;
+    --text-secondary: #6a7795;
+    --text-muted: #9aa6c2;
+    --accent-primary: #3a4ff5;
+    --accent-primary-dim: #2c3ecf;
+    --accent-amber: #d97706;
     --accent-green: #16a34a;
     --accent-red: #dc2626;
-    --accent-blue: #2563eb;
-    --accent-purple: #7c3aed;
-    --accent-cyan: #0891b2;
+    --chart-1: #3a4ff5;
+    --chart-2: #d97706;
+    --chart-3: #0891b2;
+    --chart-4: #7c3aed;
+    --chart-5: #db2777;
+    --chart-6: #0d9488;
+    --chart-grid: #e7ecf7;
+    --chart-axis: #d5dcee;
+    --shadow-card: 0 4px 20px rgba(20, 33, 62, 0.08);
   }
 }
 
 .light {
-  --bg-primary: #f5f3ef;
+  --bg-primary: #eef1fa;
   --bg-surface: #ffffff;
-  --bg-elevated: #f0ede7;
-  --bg-hover: #e8e4dc;
-  --border-default: #d4cfc5;
-  --border-bright: #b8b2a6;
-  --text-primary: #1a1612;
-  --text-secondary: #6b6358;
-  --text-muted: #9b9286;
-  --accent-copper: #b07d4f;
-  --accent-copper-dim: #8a5f38;
+  --bg-elevated: #e7ecf7;
+  --bg-hover: #dde4f5;
+  --border-default: #d5dcee;
+  --border-bright: #b7c2e0;
+  --text-primary: #14213e;
+  --text-secondary: #6a7795;
+  --text-muted: #9aa6c2;
+  --accent-primary: #3a4ff5;
+  --accent-primary-dim: #2c3ecf;
+  --accent-amber: #d97706;
   --accent-green: #16a34a;
   --accent-red: #dc2626;
-  --accent-blue: #2563eb;
-  --accent-purple: #7c3aed;
-  --accent-cyan: #0891b2;
+  --chart-1: #3a4ff5;
+  --chart-2: #d97706;
+  --chart-3: #0891b2;
+  --chart-4: #7c3aed;
+  --chart-5: #db2777;
+  --chart-6: #0d9488;
+  --chart-grid: #e7ecf7;
+  --chart-axis: #d5dcee;
+  --shadow-card: 0 4px 20px rgba(20, 33, 62, 0.08);
 }
 
 *,
@@ -101,6 +127,35 @@ body {
   font-family: "Outfit", system-ui, sans-serif;
   min-height: 100vh;
   position: relative;
+}
+
+::selection {
+  background: var(--accent-primary);
+  color: #ffffff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Signature: forward-curve hairline along the very top of the app. */
+body::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 10000;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--accent-primary-dim) 0%,
+    var(--accent-primary) 35%,
+    var(--accent-amber) 100%
+  );
 }
 
 /* Noise texture overlay */
@@ -199,9 +254,20 @@ body::before {
 .stagger-5 { animation-delay: 240ms; }
 .stagger-6 { animation-delay: 300ms; }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fade-in-up {
+    animation-duration: 0.01ms;
+  }
+  .skeleton {
+    animation: none;
+  }
+}
+
 /* Data font utility */
 .font-data {
   font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Smooth transitions */

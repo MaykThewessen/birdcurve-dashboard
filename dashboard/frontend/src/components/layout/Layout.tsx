@@ -7,10 +7,10 @@ import { useFilterStore, DEFAULT_RANGE_DAYS } from '../../store/filterStore'
 const PAGE_LABELS: Record<string, string> = {
   '/commodities': 'Commodities',
   '/electricity': 'Electricity',
-  '/ml': 'ML Performance',
+  '/ml': 'ML performance',
   '/scenarios': 'Assumptions',
   '/forecast': 'Forecast',
-  '/ancillary': 'Ancillary Markets',
+  '/ancillary': 'Ancillary markets',
 }
 
 export default function Layout() {
@@ -30,7 +30,7 @@ export default function Layout() {
   }, [theme])
 
   // Slide the date range end to today when the tab regains focus after the
-  // day has turned (e.g. dashboard left open overnight). Only updates end —
+  // day has turned (e.g. dashboard left open overnight). Only updates end -
   // start is left alone so the window width the user last saw is preserved.
   useEffect(() => {
     const handleVisibility = () => {

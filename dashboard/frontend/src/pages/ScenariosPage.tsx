@@ -6,11 +6,13 @@ import ScenarioSelector from '../components/common/ScenarioSelector'
 import ChartWrapper from '../components/common/ChartWrapper'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
-import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import { useChartTheme } from '../hooks/useChartTheme'
+import { fmtNum } from '../lib/format'
 import PageShell from '../components/common/PageShell'
 
 export default function ScenariosPage() {
   const scenario = useFilterStore((s) => s.scenario)
+  const t = useChartTheme()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['scenario', scenario],
@@ -20,23 +22,23 @@ export default function ScenariosPage() {
 
   // Capacity stacked area chart
   const capacityOption: EChartsOption = useMemo(() => ({
-    color: ['#FACC15', '#22D3EE', '#60A5FA', '#A78BFA'],
+    color: [t.series[0], t.series[1], t.series[2], t.series[3]],
     legend: {
-      data: ['Solar PV', 'Wind Onshore', 'Wind Offshore', 'BESS'],
+      data: ['Solar PV', 'Wind onshore', 'Wind offshore', 'BESS'],
       top: 4,
     },
     xAxis: {
       type: 'category',
       data: data?.years?.map(String) ?? [],
-      axisLabel: AXIS_LABEL_STYLE,
-      axisLine: { lineStyle: { color: '#2A3654' } },
+      axisLabel: t.axisLabel,
+      axisLine: t.axisLine,
     },
     yAxis: {
       type: 'value',
       name: 'GW',
-      nameTextStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
-      axisLabel: AXIS_LABEL_STYLE,
-      splitLine: { lineStyle: { color: '#1A2540', type: 'dashed' } },
+      nameTextStyle: t.nameTextStyle,
+      axisLabel: t.axisLabel,
+      splitLine: t.splitLine,
     },
     series: [
       {
@@ -47,14 +49,14 @@ export default function ScenariosPage() {
         data: data?.solar_pv_gw ?? [],
       },
       {
-        name: 'Wind Onshore',
+        name: 'Wind onshore',
         type: 'line',
         stack: 'capacity',
         areaStyle: { opacity: 0.7 },
         data: data?.wind_on_gw ?? [],
       },
       {
-        name: 'Wind Offshore',
+        name: 'Wind offshore',
         type: 'line',
         stack: 'capacity',
         areaStyle: { opacity: 0.7 },
@@ -74,17 +76,17 @@ export default function ScenariosPage() {
         const items = params as { seriesName: string; value: number; color: string; dataIndex?: number }[]
         const year = data?.years?.[items[0]?.dataIndex ?? 0] ?? ''
         const lines = items.map(
-          (p) => `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${Number(p.value).toFixed(1)} GW</b>`,
+          (p) => `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${fmtNum(Number(p.value), 1)} GW</b>`,
         )
-        return `<div style="font-family:JetBrains Mono,monospace;font-size:12px"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
+        return `<div style="${t.tooltipCss}"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
       },
     },
     grid: { top: 48, right: 20, bottom: 40, left: 60, containLabel: true },
-  }), [data])
+  }), [data, t])
 
-  // Commodity futures chart — dual Y-axis
+  // Commodity futures chart - dual Y-axis
   const commodityOption: EChartsOption = useMemo(() => ({
-    color: ['#D4A574', '#60A5FA'],
+    color: [t.series[1], t.series[0]],
     legend: {
       data: ['Gas TTF (EUR/MWh)', 'CO2 EUA (EUR/ton)'],
       top: 4,
@@ -92,22 +94,22 @@ export default function ScenariosPage() {
     xAxis: {
       type: 'category',
       data: data?.years?.map(String) ?? [],
-      axisLabel: AXIS_LABEL_STYLE,
-      axisLine: { lineStyle: { color: '#2A3654' } },
+      axisLabel: t.axisLabel,
+      axisLine: t.axisLine,
     },
     yAxis: [
       {
         type: 'value',
         name: 'Gas EUR/MWh',
-        nameTextStyle: { color: '#D4A574', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
-        axisLabel: { ...AXIS_LABEL_STYLE, color: '#D4A574' },
-        splitLine: { lineStyle: { color: '#1A2540', type: 'dashed' } },
+        nameTextStyle: { ...t.nameTextStyle, color: t.series[1] },
+        axisLabel: { ...t.axisLabel, color: t.series[1] },
+        splitLine: t.splitLine,
       },
       {
         type: 'value',
         name: 'CO2 EUR/ton',
-        nameTextStyle: { color: '#60A5FA', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
-        axisLabel: { ...AXIS_LABEL_STYLE, color: '#60A5FA' },
+        nameTextStyle: { ...t.nameTextStyle, color: t.series[0] },
+        axisLabel: { ...t.axisLabel, color: t.series[0] },
         splitLine: { show: false },
       },
     ],
@@ -117,8 +119,8 @@ export default function ScenariosPage() {
         type: 'line',
         yAxisIndex: 0,
         smooth: true,
-        lineStyle: { width: 2, color: '#D4A574' },
-        itemStyle: { color: '#D4A574' },
+        lineStyle: { width: 2, color: t.series[1] },
+        itemStyle: { color: t.series[1] },
         data: data?.gas_price ?? [],
       },
       {
@@ -126,8 +128,8 @@ export default function ScenariosPage() {
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
-        lineStyle: { width: 2, color: '#60A5FA' },
-        itemStyle: { color: '#60A5FA' },
+        lineStyle: { width: 2, color: t.series[0] },
+        itemStyle: { color: t.series[0] },
         data: data?.co2_price ?? [],
       },
     ],
@@ -137,13 +139,13 @@ export default function ScenariosPage() {
         const items = params as { seriesName: string; value: number; color: string; dataIndex: number }[]
         const year = data?.years?.[items[0]?.dataIndex ?? 0] ?? ''
         const lines = items.map(
-          (p) => `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${Number(p.value).toFixed(2)}</b>`,
+          (p) => `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${fmtNum(Number(p.value), 2)}</b>`,
         )
-        return `<div style="font-family:JetBrains Mono,monospace;font-size:12px"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
+        return `<div style="${t.tooltipCss}"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
       },
     },
     grid: { top: 48, right: 80, bottom: 40, left: 60, containLabel: true },
-  }), [data])
+  }), [data, t])
 
   // Export data for table
   const tableData =
@@ -170,7 +172,7 @@ export default function ScenariosPage() {
             className="text-xl font-bold"
             style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
           >
-            Scenario Assumptions
+            Scenario assumptions
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Capacity, technology and commodity price assumptions to 2050
@@ -198,8 +200,8 @@ export default function ScenariosPage() {
           {/* Charts row */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <ChartWrapper
-              title="Installed Capacity (GW)"
-              subtitle="Solar PV · Wind On/Offshore · BESS — stacked"
+              title="Installed capacity (GW)"
+              subtitle="Solar PV · Wind on/offshore · BESS (stacked)"
               loading={isLoading}
               error={error as Error | null}
               height={320}
@@ -210,7 +212,7 @@ export default function ScenariosPage() {
             </ChartWrapper>
 
             <ChartWrapper
-              title="Commodity Price Assumptions"
+              title="Commodity price assumptions"
               subtitle="Gas TTF EUR/MWh · CO2 EUA EUR/ton"
               loading={isLoading}
               error={error as Error | null}
@@ -236,10 +238,10 @@ export default function ScenariosPage() {
                 className="text-sm font-semibold"
                 style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
               >
-                Scenario Data Table
+                Scenario data table
               </h3>
               <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                {scenario} — sorted by year ascending
+                {scenario}: sorted by year ascending
               </p>
             </div>
 
@@ -283,32 +285,32 @@ export default function ScenariosPage() {
                           backgroundColor: i % 2 === 0 ? 'transparent' : 'var(--bg-elevated)',
                         }}
                       >
-                        <td className="px-3 py-1.5 font-semibold" style={{ color: 'var(--accent-copper)' }}>
+                        <td className="px-3 py-1.5 font-semibold" style={{ color: 'var(--accent-primary)' }}>
                           {row.year}
                         </td>
                         <td className="px-3 py-1.5 text-right" style={{ color: 'var(--text-primary)' }}>
-                          {row.solar_pv != null ? row.solar_pv.toFixed(1) : '—'}
+                          {fmtNum(row.solar_pv, 1)}
                         </td>
                         <td className="px-3 py-1.5 text-right" style={{ color: 'var(--text-primary)' }}>
-                          {row.wind_on != null ? row.wind_on.toFixed(1) : '—'}
+                          {fmtNum(row.wind_on, 1)}
                         </td>
                         <td className="px-3 py-1.5 text-right" style={{ color: 'var(--text-primary)' }}>
-                          {row.wind_off != null ? row.wind_off.toFixed(1) : '—'}
+                          {fmtNum(row.wind_off, 1)}
                         </td>
                         <td className="px-3 py-1.5 text-right" style={{ color: 'var(--text-primary)' }}>
-                          {row.bess_gw != null ? row.bess_gw.toFixed(1) : '—'}
+                          {fmtNum(row.bess_gw, 1)}
                         </td>
                         <td className="px-3 py-1.5 text-right" style={{ color: 'var(--text-primary)' }}>
-                          {row.bess_gwh != null ? row.bess_gwh.toFixed(1) : '—'}
+                          {fmtNum(row.bess_gwh, 1)}
                         </td>
-                        <td className="px-3 py-1.5 text-right" style={{ color: 'var(--accent-copper)' }}>
-                          {row.gas_ttf != null ? row.gas_ttf.toFixed(2) : '—'}
+                        <td className="px-3 py-1.5 text-right" style={{ color: t.series[1] }}>
+                          {fmtNum(row.gas_ttf, 2)}
                         </td>
-                        <td className="px-3 py-1.5 text-right" style={{ color: 'var(--accent-blue)' }}>
-                          {row.co2 != null ? row.co2.toFixed(2) : '—'}
+                        <td className="px-3 py-1.5 text-right" style={{ color: t.series[0] }}>
+                          {fmtNum(row.co2, 2)}
                         </td>
                         <td className="px-3 py-1.5 text-right" style={{ color: 'var(--text-secondary)' }}>
-                          {row.demand_twh != null ? row.demand_twh.toFixed(1) : '—'}
+                          {fmtNum(row.demand_twh, 1)}
                         </td>
                       </tr>
                     ))}

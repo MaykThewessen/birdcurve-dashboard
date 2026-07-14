@@ -24,7 +24,7 @@ export default function StalenessBadge({
   className = '',
 }: StalenessBadgeProps) {
   // Date.now() is impure; React 19's react-hooks/purity rule disallows
-  // it during render. Track 'now' in state and refresh every minute —
+  // it during render. Track 'now' in state and refresh every minute -
   // the badge only needs minute-resolution accuracy anyway.
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -39,12 +39,17 @@ export default function StalenessBadge({
 
   const ageHours = (now - ts) / 3_600_000
   const ageLabel = formatAge(ageHours)
-  const tone =
+  const toneVar =
     ageHours >= dangerAfterHours
-      ? { fg: '#F87171', bg: 'rgba(248, 113, 113, 0.12)', border: 'rgba(248, 113, 113, 0.3)' }
+      ? 'var(--accent-red)'
       : ageHours >= warnAfterHours
-        ? { fg: '#FACC15', bg: 'rgba(250, 204, 21, 0.10)', border: 'rgba(250, 204, 21, 0.3)' }
-        : { fg: '#22D3EE', bg: 'rgba(34, 211, 238, 0.10)', border: 'rgba(34, 211, 238, 0.3)' }
+        ? 'var(--accent-amber)'
+        : 'var(--accent-green)'
+  const tone = {
+    fg: toneVar,
+    bg: `color-mix(in srgb, ${toneVar} 12%, transparent)`,
+    border: `color-mix(in srgb, ${toneVar} 30%, transparent)`,
+  }
 
   // Show full date for >24h-old data so the user sees the actual date.
   // For sub-day lags, just '3h ago' is enough.
@@ -62,7 +67,7 @@ export default function StalenessBadge({
       }}
     >
       <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: tone.fg }} />
-      {dateLabel && <span style={{ color: '#8896B3' }}>{dateLabel}</span>}
+      {dateLabel && <span style={{ color: 'var(--text-secondary)' }}>{dateLabel}</span>}
       <span>{ageLabel}</span>
     </span>
   )

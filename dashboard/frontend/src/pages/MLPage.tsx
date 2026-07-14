@@ -5,32 +5,42 @@ import KpiCard from '../components/common/KpiCard'
 import ChartWrapper from '../components/common/ChartWrapper'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
-import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import { useChartTheme } from '../hooks/useChartTheme'
+import { fmtNum } from '../lib/format'
 import PageShell from '../components/common/PageShell'
 
-// Price band color by name
-const BAND_COLORS: Record<string, string> = {
-  A: '#60A5FA',
-  B: '#4ADE80',
-  C: '#FB923C',
-  D: '#F87171',
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.replace('#', ''), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
-function formatNum(v: number | null | undefined, decimals = 2): string {
-  if (v == null || isNaN(v)) return '—'
-  return v.toFixed(decimals)
-}
-
-function bandColorForMae(mae: number, maxMae: number): string {
-  // Lower MAE → greener; higher → redder
+// Lower MAE → greener (good); higher → redder (bad), interpolated between theme endpoints.
+function bandColorForMae(mae: number, maxMae: number, good: string, bad: string): string {
   const ratio = maxMae > 0 ? Math.min(mae / maxMae, 1) : 0
-  const r = Math.round(ratio * 248 + (1 - ratio) * 74)
-  const g = Math.round((1 - ratio) * 222 + ratio * 113)
-  const b = Math.round((1 - ratio) * 128 + ratio * 113)
-  return `rgb(${r},${g},${b})`
+  const [gr, gg, gb] = hexToRgb(good)
+  const [br, bg, bb] = hexToRgb(bad)
+  const r = Math.round(ratio * br + (1 - ratio) * gr)
+  const g = Math.round(ratio * bg + (1 - ratio) * gg)
+  const b = Math.round(ratio * bb + (1 - ratio) * gb)
+  // Hex so callers can append a 2-digit alpha suffix (e.g. `${color}22`).
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
 }
 
 export default function MLPage() {
+  const t = useChartTheme()
+
+  // Price band color by name - B and C are plain categorical slots (not
+  // good/bad semantics), D reuses the shared error/red token.
+  const bandColors: Record<string, string> = useMemo(
+    () => ({
+      A: t.series[0],
+      B: t.series[5],
+      C: t.series[1],
+      D: t.red,
+    }),
+    [t],
+  )
+
   const { data: metrics, isLoading: metricsLoading, error: metricsError } = useQuery({
     queryKey: ['ml-metrics'],
     queryFn: () => api.mlMetrics(),
@@ -46,11 +56,11 @@ export default function MLPage() {
     if (!predictions) return {}
 
     const { actual, predicted } = predictions
-    const bandColors = actual.map((a) => {
-      if (a < 20) return BAND_COLORS['A']
-      if (a < 90) return BAND_COLORS['B']
-      if (a < 180) return BAND_COLORS['C']
-      return BAND_COLORS['D']
+    const pointColors = actual.map((a) => {
+      if (a < 20) return bandColors.A
+      if (a < 90) return bandColors.B
+      if (a < 180) return bandColors.C
+      return bandColors.D
     })
 
     const allVals = [...actual, ...predicted]
@@ -60,7 +70,7 @@ export default function MLPage() {
 
     const scatterData = actual.map((a, i) => ({
       value: [a, predicted[i]],
-      itemStyle: { color: bandColors[i], opacity: 0.55 },
+      itemStyle: { color: pointColors[i], opacity: 0.55 },
     }))
 
     const perfectLine = [
@@ -72,33 +82,33 @@ export default function MLPage() {
       grid: { top: 30, right: 20, bottom: 50, left: 65, containLabel: false },
       xAxis: {
         type: 'value',
-        name: 'Actual Price (EUR/MWh)',
+        name: 'Actual price (EUR/MWh)',
         nameLocation: 'middle',
         nameGap: 30,
-        axisLabel: AXIS_LABEL_STYLE,
-        axisLine: { lineStyle: { color: '#2A3654' } },
-        splitLine: { lineStyle: { color: '#1A2540' } },
+        axisLabel: t.axisLabel,
+        axisLine: t.axisLine,
+        splitLine: t.splitLine,
       },
       yAxis: {
         type: 'value',
-        name: 'Predicted Price (EUR/MWh)',
+        name: 'Predicted price (EUR/MWh)',
         nameLocation: 'middle',
         nameGap: 55,
-        axisLabel: AXIS_LABEL_STYLE,
-        axisLine: { lineStyle: { color: '#2A3654' } },
-        splitLine: { lineStyle: { color: '#1A2540' } },
+        axisLabel: t.axisLabel,
+        axisLine: t.axisLine,
+        splitLine: t.splitLine,
       },
       tooltip: {
         trigger: 'item',
         formatter: (params: unknown) => {
           const p = params as { value: [number, number] }
-          return `Actual: <b>${p.value[0].toFixed(2)}</b><br/>Predicted: <b>${p.value[1].toFixed(2)}</b>`
+          return `Actual: <b>${fmtNum(p.value[0], 2)}</b><br/>Predicted: <b>${fmtNum(p.value[1], 2)}</b>`
         },
       },
       legend: {
-        data: ['Band A (<20)', 'Band B (20-90)', 'Band C (90-180)', 'Band D (>180)', 'Perfect Fit'],
+        data: ['Band A (<20)', 'Band B (20-90)', 'Band C (90-180)', 'Band D (>180)', 'Perfect fit'],
         top: 0,
-        textStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
+        textStyle: { color: t.faint, fontFamily: 'Outfit, sans-serif', fontSize: 11 },
       },
       series: [
         {
@@ -114,23 +124,23 @@ export default function MLPage() {
           name: [`Band A (<20)`, `Band B (20-90)`, `Band C (90-180)`, `Band D (>180)`][i],
           type: 'scatter' as const,
           data: [],
-          itemStyle: { color: BAND_COLORS[band] },
+          itemStyle: { color: bandColors[band] },
           symbol: 'circle',
           symbolSize: 8,
         })),
         {
-          name: 'Perfect Fit',
+          name: 'Perfect fit',
           type: 'line' as const,
           data: perfectLine,
           symbol: 'none',
-          lineStyle: { color: '#8896B3', type: 'dashed', width: 1.5 },
-          itemStyle: { color: '#8896B3' },
+          lineStyle: { color: t.faint, type: 'dashed', width: 1.5 },
+          itemStyle: { color: t.faint },
         },
       ] as never,
     }
-  }, [predictions])
+  }, [predictions, bandColors, t])
 
-  // Top-20 features by importance — computed once, shared by the chart option
+  // Top-20 features by importance - computed once, shared by the chart option
   // and the CSV export so both always reflect the same sorted slice.
   const top20Features = useMemo(
     () =>
@@ -154,15 +164,15 @@ export default function MLPage() {
       grid: { top: 10, right: 20, bottom: 10, left: 20, containLabel: true },
       xAxis: {
         type: 'value',
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
-        axisLine: { lineStyle: { color: '#2A3654' } },
-        splitLine: { lineStyle: { color: '#1A2540' } },
+        axisLabel: { color: t.faint, fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
+        axisLine: { lineStyle: { color: t.border } },
+        splitLine: { lineStyle: { color: t.grid, type: 'dashed' } },
       },
       yAxis: {
         type: 'category',
         data: names,
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
-        axisLine: { lineStyle: { color: '#2A3654' } },
+        axisLabel: { color: t.faint, fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
+        axisLine: { lineStyle: { color: t.border } },
       },
       tooltip: {
         trigger: 'axis',
@@ -170,7 +180,7 @@ export default function MLPage() {
         formatter: (params: unknown) => {
           const p = params as { name: string; value: number }[]
           if (!p?.length) return ''
-          return `${p[0].name}<br/><b>${p[0].value.toFixed(4)}</b>`
+          return `${p[0].name}<br/><b>${fmtNum(p[0].value, 4)}</b>`
         },
       },
       series: [
@@ -183,9 +193,9 @@ export default function MLPage() {
                 type: 'linear',
                 x: 0, y: 0, x2: 1, y2: 0,
                 colorStops: [
-                  { offset: 0, color: '#A67C52' },
-                  { offset: v / maxImp, color: '#D4A574' },
-                  { offset: 1, color: '#E8C49A' },
+                  { offset: 0, color: `${t.series[1]}B3` },
+                  { offset: v / maxImp, color: t.series[1] },
+                  { offset: 1, color: `${t.series[1]}4D` },
                 ],
               },
             },
@@ -194,7 +204,7 @@ export default function MLPage() {
         },
       ],
     }
-  }, [top20Features])
+  }, [top20Features, t])
 
   // Residual histogram
   const residualOption: EChartsOption = useMemo(() => {
@@ -235,21 +245,21 @@ export default function MLPage() {
       grid: { top: 30, right: 20, bottom: 50, left: 60, containLabel: false },
       xAxis: {
         type: 'value',
-        name: 'Prediction Error (EUR/MWh)',
+        name: 'Prediction error (EUR/MWh)',
         nameLocation: 'middle',
         nameGap: 30,
-        axisLabel: AXIS_LABEL_STYLE,
-        axisLine: { lineStyle: { color: '#2A3654' } },
-        splitLine: { lineStyle: { color: '#1A2540' } },
+        axisLabel: t.axisLabel,
+        axisLine: t.axisLine,
+        splitLine: t.splitLine,
       },
       yAxis: {
         type: 'value',
         name: 'Frequency',
         nameLocation: 'middle',
         nameGap: 50,
-        axisLabel: AXIS_LABEL_STYLE,
-        axisLine: { lineStyle: { color: '#2A3654' } },
-        splitLine: { lineStyle: { color: '#1A2540' } },
+        axisLabel: t.axisLabel,
+        axisLine: t.axisLine,
+        splitLine: t.splitLine,
       },
       tooltip: {
         trigger: 'axis',
@@ -262,9 +272,9 @@ export default function MLPage() {
         },
       },
       legend: {
-        data: ['Frequency', 'Normal Fit'],
+        data: ['Frequency', 'Normal fit'],
         top: 0,
-        textStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
+        textStyle: { color: t.faint, fontFamily: 'Outfit, sans-serif', fontSize: 11 },
       },
       series: [
         {
@@ -272,20 +282,20 @@ export default function MLPage() {
           type: 'bar',
           data: bins.map(({ x, count }) => [x, count]),
           barWidth: `${Math.floor(100 / nBins)}%`,
-          itemStyle: { color: 'rgba(212,165,116,0.5)', borderColor: '#D4A574', borderWidth: 0.5 },
+          itemStyle: { color: `${t.series[1]}80`, borderColor: t.series[1], borderWidth: 0.5 },
         },
         {
-          name: 'Normal Fit',
+          name: 'Normal fit',
           type: 'line',
           data: normLine,
           symbol: 'none',
           smooth: true,
-          lineStyle: { color: '#60A5FA', width: 2 },
-          itemStyle: { color: '#60A5FA' },
+          lineStyle: { color: t.series[0], width: 2 },
+          itemStyle: { color: t.series[0] },
         },
       ],
     }
-  }, [predictions])
+  }, [predictions, t])
 
   // Price band table max MAE for relative coloring
   const maxBandMae = useMemo(() => {
@@ -305,7 +315,7 @@ export default function MLPage() {
           className="text-xl font-bold"
           style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
         >
-          ML Performance
+          ML performance
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
           LightGBM + CatBoost ensemble metrics, feature importance and prediction quality
@@ -316,34 +326,34 @@ export default function MLPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <KpiCard
           title="Train MAE"
-          value={formatNum(metrics?.training.mae)}
+          value={fmtNum(metrics?.training.mae, 2)}
           unit="EUR/MWh"
           loading={metricsLoading}
           staggerIndex={0}
         />
         <KpiCard
           title="Val MAE"
-          value={formatNum(metrics?.validation.mae)}
+          value={fmtNum(metrics?.validation.mae, 2)}
           unit="EUR/MWh"
           loading={metricsLoading}
           staggerIndex={1}
         />
         <KpiCard
           title="Val R²"
-          value={formatNum(metrics?.validation.r2, 3)}
+          value={fmtNum(metrics?.validation.r2, 3)}
           loading={metricsLoading}
           staggerIndex={2}
         />
         <KpiCard
           title="BESS Capture"
-          value={formatNum(metrics?.bess.capture_rate ? metrics.bess.capture_rate * 100 : undefined, 1)}
+          value={fmtNum(metrics?.bess.capture_rate ? metrics.bess.capture_rate * 100 : undefined, 1)}
           unit="%"
           loading={metricsLoading}
           staggerIndex={3}
         />
         <KpiCard
           title="Spearman ρ"
-          value={formatNum(metrics?.bess.spearman, 3)}
+          value={fmtNum(metrics?.bess.spearman, 3)}
           loading={metricsLoading}
           staggerIndex={4}
         />
@@ -365,13 +375,13 @@ export default function MLPage() {
             className="text-xs font-medium uppercase tracking-wider mb-3"
             style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}
           >
-            Ensemble Weights
+            Ensemble weights
           </div>
           <div className="flex items-center gap-3">
             <div className="flex-1">
               <div className="flex justify-between text-xs mb-1" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                <span style={{ color: '#4ADE80' }}>LightGBM</span>
-                <span style={{ color: 'var(--text-primary)' }}>{(lgbWeight * 100).toFixed(1)}%</span>
+                <span style={{ color: t.series[5] }}>LightGBM</span>
+                <span style={{ color: 'var(--text-primary)' }}>{fmtNum(lgbWeight * 100, 1)}%</span>
               </div>
               <div
                 className="h-2 rounded-full overflow-hidden"
@@ -379,14 +389,14 @@ export default function MLPage() {
               >
                 <div
                   className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${lgbWeight * 100}%`, backgroundColor: '#4ADE80' }}
+                  style={{ width: `${lgbWeight * 100}%`, backgroundColor: t.series[5] }}
                 />
               </div>
             </div>
             <div className="flex-1">
               <div className="flex justify-between text-xs mb-1" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                <span style={{ color: '#A78BFA' }}>CatBoost</span>
-                <span style={{ color: 'var(--text-primary)' }}>{(cbWeight * 100).toFixed(1)}%</span>
+                <span style={{ color: t.series[3] }}>CatBoost</span>
+                <span style={{ color: 'var(--text-primary)' }}>{fmtNum(cbWeight * 100, 1)}%</span>
               </div>
               <div
                 className="h-2 rounded-full overflow-hidden"
@@ -394,12 +404,12 @@ export default function MLPage() {
               >
                 <div
                   className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${cbWeight * 100}%`, backgroundColor: '#A78BFA' }}
+                  style={{ width: `${cbWeight * 100}%`, backgroundColor: t.series[3] }}
                 />
               </div>
             </div>
             <div style={{ color: 'var(--text-muted)', fontSize: '11px', fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap' }}>
-              Val RMSE: {formatNum(metrics.validation.rmse)} EUR/MWh
+              Val RMSE: {fmtNum(metrics.validation.rmse, 2)} EUR/MWh
             </div>
           </div>
         </div>
@@ -408,7 +418,7 @@ export default function MLPage() {
       {/* Scatter + Residual histogram row */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ChartWrapper
-          title="Actual vs Predicted"
+          title="Actual vs predicted"
           subtitle="EUR/MWh · validation set, colored by price band"
           loading={predLoading}
           error={predError as Error | null}
@@ -419,7 +429,7 @@ export default function MLPage() {
         </ChartWrapper>
 
         <ChartWrapper
-          title="Residual Distribution"
+          title="Residual distribution"
           subtitle="Prediction errors with normal fit overlay"
           loading={predLoading}
           error={predError as Error | null}
@@ -446,7 +456,7 @@ export default function MLPage() {
                 className="text-sm font-semibold"
                 style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
               >
-                Price Band Performance
+                Price band performance
               </h3>
               <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
                 MAE and correlation by price range
@@ -482,14 +492,14 @@ export default function MLPage() {
                 <tbody>
                   {(metrics?.price_bands ?? []).map((band, i) => {
                     const bandLetter = band.name.split(' ')[1] ?? String(i)
-                    const color = BAND_COLORS[bandLetter] ?? 'var(--text-primary)'
-                    const maeColor = bandColorForMae(band.mae, maxBandMae)
+                    const color = bandColors[bandLetter] ?? 'var(--text-primary)'
+                    const maeColor = bandColorForMae(band.mae, maxBandMae, t.green, t.red)
                     return (
                       <tr
                         key={band.name}
                         style={{
                           borderBottom: '1px solid var(--border-default)',
-                          backgroundColor: i % 2 === 0 ? 'transparent' : 'rgba(26,37,64,0.3)',
+                          backgroundColor: i % 2 === 0 ? 'transparent' : `${t.elevated}4D`,
                         }}
                       >
                         <td className="px-4 py-2.5">
@@ -508,13 +518,13 @@ export default function MLPage() {
                           className="px-4 py-2.5 font-data"
                           style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}
                         >
-                          {band.count.toLocaleString()}
+                          {fmtNum(band.count, 0)}
                         </td>
                         <td
                           className="px-4 py-2.5 font-data"
                           style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}
                         >
-                          {band.pct.toFixed(1)}%
+                          {fmtNum(band.pct, 1)}%
                         </td>
                         <td className="px-4 py-2.5">
                           <span
@@ -525,14 +535,14 @@ export default function MLPage() {
                               fontFamily: 'JetBrains Mono, monospace',
                             }}
                           >
-                            {band.mae.toFixed(2)}
+                            {fmtNum(band.mae, 2)}
                           </span>
                         </td>
                         <td
                           className="px-4 py-2.5 font-data"
                           style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}
                         >
-                          {band.correlation.toFixed(3)}
+                          {fmtNum(band.correlation, 3)}
                         </td>
                       </tr>
                     )
@@ -545,7 +555,7 @@ export default function MLPage() {
 
         {/* Feature importance */}
         <ChartWrapper
-          title="Feature Importance"
+          title="Feature importance"
           subtitle="Top 20 features by model importance"
           loading={metricsLoading}
           error={metricsError as Error | null}
@@ -562,23 +572,23 @@ export default function MLPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KpiCard
             title="Train R²"
-            value={formatNum(metrics.training.r2, 3)}
+            value={fmtNum(metrics.training.r2, 3)}
             staggerIndex={0}
           />
           <KpiCard
             title="Train RMSE"
-            value={formatNum(metrics.training.rmse)}
+            value={fmtNum(metrics.training.rmse, 2)}
             unit="EUR/MWh"
             staggerIndex={1}
           />
           <KpiCard
             title="Val Correlation"
-            value={formatNum(metrics.validation.correlation, 3)}
+            value={fmtNum(metrics.validation.correlation, 3)}
             staggerIndex={2}
           />
           <KpiCard
             title="Spread MAE"
-            value={formatNum(metrics.bess.spread_mae)}
+            value={fmtNum(metrics.bess.spread_mae, 2)}
             unit="EUR/MWh"
             staggerIndex={3}
           />

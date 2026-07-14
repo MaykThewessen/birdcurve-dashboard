@@ -10,7 +10,7 @@ type DateRange = { start: string; end: string }
  * dateRange changes (useEffect would cause a stale render first).
  *
  * handleVisibleRangeChange only triggers a re-fetch on a meaningful zoom-in
- * (≥30% narrower) or pan beyond the current envelope — programmatic setData
+ * (≥30% narrower) or pan beyond the current envelope - programmatic setData
  * events that mirror the existing range are ignored.
  */
 export function useChartRange(dateRange: DateRange) {

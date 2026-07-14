@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useFilterStore } from '../store/filterStore'
+import { useChartTheme } from '../hooks/useChartTheme'
+import { fmtNum } from '../lib/format'
 import KpiCard from '../components/common/KpiCard'
 import DateRangePicker from '../components/common/DateRangePicker'
 import ChartWrapper from '../components/common/ChartWrapper'
@@ -9,24 +11,14 @@ import TradingViewChart, { type TradingViewSeries } from '../components/charts/T
 import type { UTCTimestamp } from 'lightweight-charts'
 import PageShell from '../components/common/PageShell'
 
-const SERIES_COLORS: Record<string, string> = {
-  gas_ttf: '#D4A574',
-  co2_eua: '#60A5FA',
-  coal_api2: '#A78BFA',
-  coal_eur_mwh: '#FB923C',
-  eur_usd: '#22D3EE',
-  gas_marginal: '#4ADE80',
-  coal_marginal: '#F87171',
-}
-
 const SERIES_LABELS: Record<string, string> = {
   gas_ttf: 'Gas TTF',
   co2_eua: 'CO2 EUA',
   coal_api2: 'Coal API2 (USD/t)',
   coal_eur_mwh: 'Coal API2 (EUR/MWh_th)',
   eur_usd: 'EUR/USD',
-  gas_marginal: 'Gas Marginal',
-  coal_marginal: 'Coal Marginal',
+  gas_marginal: 'Gas marginal',
+  coal_marginal: 'Coal marginal',
 }
 
 const SERIES_UNITS: Record<string, string> = {
@@ -42,12 +34,12 @@ const SERIES_UNITS: Record<string, string> = {
 function formatValue(value: number | string | null | undefined, key: string): string {
   if (value == null) return '—'
   const num = typeof value === 'string' ? parseFloat(value) : value
-  if (isNaN(num)) return '—'
-  if (key.includes('eur_usd')) return num.toFixed(4)
-  return num.toFixed(2)
+  if (key.includes('eur_usd')) return fmtNum(num, 4)
+  return fmtNum(num, 2)
 }
 
 export default function CommoditiesPage() {
+  const t = useChartTheme()
   const dateRange = useFilterStore((s) => s.dateRange)
   const [showMarginal, setShowMarginal] = useState(false)
   // Coal defaults to thermal terms (EUR/MWh_th) so it reads on the same
@@ -65,6 +57,21 @@ export default function CommoditiesPage() {
     queryKey: ['commodities', dateRange.start, dateRange.end, showMarginal],
     queryFn: () => api.commodities(dateRange.start, dateRange.end, showMarginal),
   })
+
+  // Series → palette slot, fixed order of appearance in the chart/toggles.
+  // coal_marginal keeps t.red (loss-making leg), the rest cycle t.series.
+  const seriesColors: Record<string, string> = useMemo(
+    () => ({
+      gas_ttf: t.series[1],
+      co2_eua: t.series[0],
+      coal_api2: t.series[3],
+      coal_eur_mwh: t.series[4],
+      eur_usd: t.series[2],
+      gas_marginal: t.series[5],
+      coal_marginal: t.red,
+    }),
+    [t],
+  )
 
   // Build chart series. Memoized so re-renders don't hand TradingViewChart
   // a fresh array identity, which would rebuild the chart and reset zoom.
@@ -90,7 +97,7 @@ export default function CommoditiesPage() {
 
       series.push({
         data,
-        color: SERIES_COLORS[key],
+        color: seriesColors[key],
         lineWidth: 2,
         title: SERIES_LABELS[key],
         type: 'line',
@@ -100,7 +107,7 @@ export default function CommoditiesPage() {
       })
     })
     return series
-  }, [commodityData, showMarginal, activeSeriesKeys])
+  }, [commodityData, showMarginal, activeSeriesKeys, seriesColors])
 
   // KPI cards
   const kpiCards = [
@@ -108,8 +115,8 @@ export default function CommoditiesPage() {
     { key: 'co2_eua', title: 'CO2 EUA', unit: 'EUR/ton' },
     { key: 'coal_eur_mwh', title: 'Coal API2', unit: 'EUR/MWh_th' },
     { key: 'coal_api2', title: 'Coal API2', unit: 'USD/ton' },
-    { key: 'gas_marginal', title: 'Gas Marginal', unit: 'EUR/MWh' },
-    { key: 'coal_marginal', title: 'Coal Marginal', unit: 'EUR/MWh' },
+    { key: 'gas_marginal', title: 'Gas marginal', unit: 'EUR/MWh' },
+    { key: 'coal_marginal', title: 'Coal marginal', unit: 'EUR/MWh' },
   ]
 
   function toggleSeries(key: string) {
@@ -124,7 +131,7 @@ export default function CommoditiesPage() {
     })
   }
 
-  // Export data — build a merged date→row lookup so each row in the CSV
+  // Export data: build a merged date→row lookup so each row in the CSV
   // has matched values. Each series may have different LTTB-sampled dates,
   // so we cannot zip by index. Instead we union all dates and emit one row
   // per date with nulls for missing series values.
@@ -166,7 +173,7 @@ export default function CommoditiesPage() {
             className="text-xl font-bold"
             style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
           >
-            Commodity Markets
+            Commodity markets
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Live fuel & carbon prices driving NL electricity marginal costs
@@ -210,14 +217,14 @@ export default function CommoditiesPage() {
               onClick={() => toggleSeries(key)}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all duration-200"
               style={{
-                borderColor: active ? SERIES_COLORS[key] : 'var(--border-default)',
-                backgroundColor: active ? `${SERIES_COLORS[key]}22` : 'transparent',
-                color: active ? SERIES_COLORS[key] : 'var(--text-muted)',
+                borderColor: active ? seriesColors[key] : 'var(--border-default)',
+                backgroundColor: active ? `${seriesColors[key]}22` : 'transparent',
+                color: active ? seriesColors[key] : 'var(--text-muted)',
               }}
             >
               <span
                 className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: active ? SERIES_COLORS[key] : 'var(--text-muted)' }}
+                style={{ backgroundColor: active ? seriesColors[key] : 'var(--text-muted)' }}
               />
               {label}
             </button>
@@ -241,18 +248,18 @@ export default function CommoditiesPage() {
           }}
           className="ml-2 px-2.5 py-1 rounded-full text-xs border transition-all duration-200"
           style={{
-            borderColor: showMarginal ? 'var(--accent-copper)' : 'var(--border-default)',
-            backgroundColor: showMarginal ? 'rgba(212,165,116,0.15)' : 'transparent',
-            color: showMarginal ? 'var(--accent-copper)' : 'var(--text-muted)',
+            borderColor: showMarginal ? 'var(--accent-primary)' : 'var(--border-default)',
+            backgroundColor: showMarginal ? `${t.accent}26` : 'transparent',
+            color: showMarginal ? 'var(--accent-primary)' : 'var(--text-muted)',
           }}
         >
-          {showMarginal ? 'Hide' : 'Show'} Marginal Costs
+          {showMarginal ? 'Hide' : 'Show'} marginal costs
         </button>
       </div>
 
       {/* Main chart */}
       <ChartWrapper
-        title="Commodity Price History"
+        title="Commodity price history"
         subtitle={`${SERIES_UNITS.gas_ttf} / ${SERIES_UNITS.co2_eua} / ${SERIES_UNITS.coal_api2}`}
         loading={chartLoading}
         error={chartError as Error | null}
@@ -267,7 +274,7 @@ export default function CommoditiesPage() {
       <p className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
         Coal EUR/MWh_th = Coal_USD / 6.978 / EUR_USD (25.12 GJ/ton LHV, daily EUR/USD
         forward-filled), shown by default so coal reads on the same energy scale as Gas TTF.
-        Gas marginal cost = (Gas TTF · 1.108 + CO2 · 0.202) / 0.58 — TTF is per MWh_HHV but
+        Gas marginal cost = (Gas TTF · 1.108 + CO2 · 0.202) / 0.58: TTF is per MWh_HHV but
         plant efficiency is reported on LHV; the 1.108 factor converts HHV→LHV before applying
         58% LHV efficiency and 202 kg CO2/MWh_LHV (IPCC NCV).
         Coal marginal cost = (Coal EUR/MWh_th + CO2 · 0.335) / 0.46 (46% efficiency,

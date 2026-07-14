@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { format, subDays } from 'date-fns'
 
 interface FilterState {
@@ -15,14 +16,24 @@ interface FilterState {
 // must opt out and use their own range.
 export const DEFAULT_RANGE_DAYS = 60
 
-export const useFilterStore = create<FilterState>((set) => ({
-  dateRange: {
-    start: format(subDays(new Date(), DEFAULT_RANGE_DAYS), 'yyyy-MM-dd'),
-    end: format(new Date(), 'yyyy-MM-dd'),
-  },
-  scenario: '',
-  theme: 'dark',
-  setDateRange: (start, end) => set({ dateRange: { start, end } }),
-  setScenario: (scenario) => set({ scenario }),
-  setTheme: (theme) => set({ theme }),
-}))
+export const useFilterStore = create<FilterState>()(
+  persist(
+    (set) => ({
+      dateRange: {
+        start: format(subDays(new Date(), DEFAULT_RANGE_DAYS), 'yyyy-MM-dd'),
+        end: format(new Date(), 'yyyy-MM-dd'),
+      },
+      scenario: '',
+      theme: 'dark',
+      setDateRange: (start, end) => set({ dateRange: { start, end } }),
+      setScenario: (scenario) => set({ scenario }),
+      setTheme: (theme) => set({ theme }),
+    }),
+    {
+      // Only the theme survives reloads - date range and scenario should
+      // reset to fresh defaults each session.
+      name: 'birdcurve-ui',
+      partialize: (s) => ({ theme: s.theme }),
+    },
+  ),
+)

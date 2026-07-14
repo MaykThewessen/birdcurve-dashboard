@@ -29,7 +29,8 @@ import { LegacyGridContainLabel } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { EChartsOption } from 'echarts'
 import { useMemo } from 'react'
-import { CHART_COLORS } from '../../lib/echarts-theme'
+import { FONT_MONO, FONT_SANS, type ChartTheme } from '../../lib/echarts-theme'
+import { useChartTheme } from '../../hooks/useChartTheme'
 
 // Register only the parts of ECharts that the dashboard actually uses,
 // trimming the bundle from the full ~1.1 MB monolith down to ~650 KB.
@@ -60,24 +61,30 @@ interface EChartsWrapperProps {
   style?: React.CSSProperties
 }
 
-const DARK_THEME_OVERRIDES: Partial<EChartsOption> = {
-  backgroundColor: 'transparent',
-  tooltip: {
-    backgroundColor: CHART_COLORS.grid,
-    borderColor: CHART_COLORS.border,
-    textStyle: { color: '#E8ECF4', fontFamily: 'JetBrains Mono, monospace', fontSize: 12 },
-  },
-  legend: {
-    textStyle: { color: CHART_COLORS.muted, fontFamily: 'Outfit, sans-serif', fontSize: 12 },
-    inactiveColor: CHART_COLORS.border,
-  },
-  grid: {
-    top: 40,
-    right: 20,
-    bottom: 40,
-    left: 60,
-    containLabel: true,
-  },
+function themeOverrides(t: ChartTheme): Partial<EChartsOption> {
+  return {
+    backgroundColor: 'transparent',
+    color: [...t.series],
+    tooltip: {
+      backgroundColor: t.elevated,
+      borderColor: t.border,
+      textStyle: { color: t.text, fontFamily: FONT_MONO, fontSize: 12 },
+      extraCssText: 'box-shadow: 0 4px 20px rgba(4,8,24,0.35); border-radius: 8px;',
+    },
+    legend: {
+      textStyle: { color: t.muted, fontFamily: FONT_SANS, fontSize: 12 },
+      inactiveColor: t.border,
+      itemWidth: 14,
+      itemHeight: 8,
+    },
+    grid: {
+      top: 40,
+      right: 20,
+      bottom: 40,
+      left: 60,
+      containLabel: true,
+    },
+  }
 }
 
 function mergeDeep<T extends object>(target: T, source: Partial<T>): T {
@@ -101,9 +108,10 @@ export default function EChartsWrapper({
   className = '',
   style,
 }: EChartsWrapperProps) {
+  const theme = useChartTheme()
   const mergedOption = useMemo(
-    () => mergeDeep(DARK_THEME_OVERRIDES as EChartsOption, option),
-    [option],
+    () => mergeDeep(themeOverrides(theme) as EChartsOption, option),
+    [option, theme],
   )
 
   return (
@@ -114,9 +122,9 @@ export default function EChartsWrapper({
       className={className}
       showLoading={loading}
       loadingOption={{
-        color: '#D4A574',
-        textColor: '#8896B3',
-        maskColor: 'rgba(11, 18, 34, 0.8)',
+        color: theme.accent,
+        textColor: theme.muted,
+        maskColor: theme.mode === 'dark' ? 'rgba(10, 15, 34, 0.8)' : 'rgba(238, 241, 250, 0.8)',
         text: 'Loading...',
       }}
       opts={{ renderer: 'canvas' }}
