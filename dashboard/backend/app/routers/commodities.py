@@ -17,7 +17,9 @@ router = APIRouter(prefix="/commodities", tags=["commodities"])
 # empty arrays when a sidecar is absent.
 COMMODITY_COLUMNS = {
     "gas_ttf": "Gas_TTF__price",
-    "co2_eua": "CO2_EUA__price",
+    # EUR_ton carries real ICE EUA futures settles (full history); the
+    # __price column is an orphaned ETF-proxy series that stopped 2026-04.
+    "co2_eua": "CO2_EUA__EUR_ton",
 }
 
 # Gas (CCGT) marginal cost.

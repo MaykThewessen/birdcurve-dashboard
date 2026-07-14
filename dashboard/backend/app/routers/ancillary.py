@@ -21,25 +21,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ancillary", tags=["ancillary"])
 
 
-def _avg(a, b):
-    """Average up/down values, surviving nulls. Returns None only if both nulls."""
-    a, b = _safe(a), _safe(b)
-    if a is None and b is None:
-        return None
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return (a + b) / 2
-
-
-def _sum_pair(a, b):
-    """Sum up/down volumes; missing component treated as 0 unless both null."""
-    a, b = _safe(a), _safe(b)
-    if a is None and b is None:
-        return None
-    return (a or 0) + (b or 0)
-
 
 def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_points: int):
     """Historical capacity prices/volumes from DuckDB ts_4hourly first;
@@ -50,18 +31,37 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
     file mixes actuals and predictions on the same axis, so historical
     queries shouldn't depend on which scenario the user has selected.
     """
-    # 1. Historical leg from DuckDB
+    # 1. Historical leg from DuckDB. FCR lives in dedicated symmetric_*
+    # columns (the product clears one price for both directions); the legacy
+    # FCR_capacity_*__Up/__Down columns held mislabeled aFRR data and are
+    # ignored. Older DB files may predate the symmetric columns, so probe
+    # for them and degrade to NULL FCR rather than a binder error.
+    have_fcr = {
+        r["column_name"]
+        for r in engine.query(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'ts_4hourly' AND column_name LIKE 'FCR_capacity_%__symmetric%'"
+        )
+    }
+    fcr_price_sql = (
+        '"FCR_capacity_price__symmetric_4h"'
+        if "FCR_capacity_price__symmetric_4h" in have_fcr
+        else "NULL"
+    )
+    fcr_vol_sql = (
+        '"FCR_capacity_volume__symmetric_MW"'
+        if "FCR_capacity_volume__symmetric_MW" in have_fcr
+        else "NULL"
+    )
     hist_rows = engine.query(
-        '''
+        f'''
         SELECT timestamp_utc                  AS dt,
                "aFRR_capacity_price__Up"      AS afrr_cap_up,
                "aFRR_capacity_price__Down"    AS afrr_cap_down,
-               "FCR_capacity_price__Up"       AS fcr_up,
-               "FCR_capacity_price__Down"     AS fcr_down,
+               {fcr_price_sql}                AS fcr_price,
                "aFRR_capacity_volume__Up"     AS afrr_vol_up,
                "aFRR_capacity_volume__Down"   AS afrr_vol_down,
-               "FCR_capacity_volume__Up"      AS fcr_vol_up,
-               "FCR_capacity_volume__Down"    AS fcr_vol_down
+               {fcr_vol_sql}                  AS fcr_vol
         FROM ts_4hourly
         WHERE timestamp_utc >= ? AND timestamp_utc < ?
         ORDER BY timestamp_utc
@@ -70,8 +70,8 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
     )
 
     capacity_keys = (
-        "afrr_cap_up", "afrr_cap_down", "fcr_up", "fcr_down",
-        "afrr_vol_up", "afrr_vol_down", "fcr_vol_up", "fcr_vol_down",
+        "afrr_cap_up", "afrr_cap_down", "fcr_price",
+        "afrr_vol_up", "afrr_vol_down", "fcr_vol",
     )
 
     result: list[dict] = []
@@ -89,12 +89,12 @@ def _get_capacity_sync(engine, scenario: str | None, start: str, end: str, max_p
             "block": None,  # ts_4hourly doesn't carry the auction-block label
             "afrr_cap_up": _safe(r["afrr_cap_up"]),
             "afrr_cap_down": _safe(r["afrr_cap_down"]),
-            # FCR is symmetric in NL — average up/down for the headline price,
-            # sum the volumes since both directions are reserved.
-            "fcr_cap_price": _avg(r["fcr_up"], r["fcr_down"]),
+            # FCR is symmetric in NL: one clearing price and one procured
+            # volume covering both directions.
+            "fcr_cap_price": _safe(r["fcr_price"]),
             "afrr_vol_up": _safe(r["afrr_vol_up"]),
             "afrr_vol_down": _safe(r["afrr_vol_down"]),
-            "fcr_vol": _sum_pair(r["fcr_vol_up"], r["fcr_vol_down"]),
+            "fcr_vol": _safe(r["fcr_vol"]),
             "data_source": "historical",
         })
 
