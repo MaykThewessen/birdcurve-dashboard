@@ -10,6 +10,9 @@ import {
   CrosshairMode,
   LineStyle,
 } from 'lightweight-charts'
+import { useChartTheme } from '../../hooks/useChartTheme'
+import { FONT_MONO } from '../../lib/echarts-theme'
+import { fmtNum } from '../../lib/format'
 
 export interface TradingViewSeries {
   data: { time: UTCTimestamp; value: number }[]
@@ -21,7 +24,7 @@ export interface TradingViewSeries {
   bottomColor?: string
   /** Solid (default), Dashed for forecast / projected portions. */
   lineStyle?: 'solid' | 'dashed' | 'dotted'
-  /** Decimal places for the hover tooltip — overrides the chart's default. */
+  /** Decimal places for the hover tooltip - overrides the chart's default. */
   decimals?: number
   /** Unit suffix shown after the value in the tooltip (e.g. 'EUR/MWh'). */
   unit?: string
@@ -83,6 +86,7 @@ export default function TradingViewChart({
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  const theme = useChartTheme()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRefs = useRef<ISeriesApi<any>[]>([])
   // Mirrors the latest series array so the crosshair callback (registered
@@ -113,24 +117,19 @@ export default function TradingViewChart({
       height,
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#8896B3',
-        fontFamily: 'JetBrains Mono, monospace',
+        fontFamily: FONT_MONO,
         fontSize: 11,
+        // Attribution moved to the README per the lightweight-charts
+        // license; the on-canvas logo renders as a broken glyph on navy.
+        attributionLogo: false,
       },
-      grid: {
-        vertLines: { color: '#1A2540', style: LineStyle.Dotted },
-        horzLines: { color: '#1A2540', style: LineStyle.Dotted },
+      localization: {
+        // House style: comma decimals (1.000,35).
+        locale: 'nl-NL',
+        priceFormatter: (p: number) => fmtNum(p, 2),
       },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: '#D4A574', labelBackgroundColor: '#1A2540' },
-        horzLine: { color: '#D4A574', labelBackgroundColor: '#1A2540' },
-      },
-      rightPriceScale: {
-        borderColor: '#2A3654',
-      },
+      crosshair: { mode: CrosshairMode.Normal },
       timeScale: {
-        borderColor: '#2A3654',
         timeVisible: true,
         secondsVisible: false,
       },
@@ -138,7 +137,7 @@ export default function TradingViewChart({
 
     chartRef.current = chart
 
-    // Subscribe to crosshair — also drives the inline hover tooltip,
+    // Subscribe to crosshair - also drives the inline hover tooltip,
     // which reads each series's value at the crosshair time and renders
     // them next to the cursor. param.seriesData is a Map keyed by the
     // ISeriesApi instances we pushed into seriesRefs.
@@ -168,7 +167,7 @@ export default function TradingViewChart({
         rows.push({
           title: m.title,
           value: point.value,
-          color: m.color ?? '#D4A574',
+          color: m.color ?? 'var(--accent-primary)',
           decimals: m.decimals ?? tooltipDefaultsRef.current.decimals,
           unit: m.unit ?? tooltipDefaultsRef.current.unit,
         })
@@ -199,7 +198,7 @@ export default function TradingViewChart({
     // range event → refetch loop will run until React 19's perf buffer
     // overflows and the page hangs ("DataCloneError: out of memory").
     // We filter by suppressing events whose range is essentially identical
-    // to the last one we fired — a 1% deadband relative to the span.
+    // to the last one we fired - a 1% deadband relative to the span.
     let rangeTimer: ReturnType<typeof setTimeout> | null = null
     let lastFired: { from: number; to: number } | null = null
     const handleRange = (range: { from: unknown; to: unknown } | null) => {
@@ -243,6 +242,24 @@ export default function TradingViewChart({
     }
   }, [height])
 
+  // Re-skin the existing chart instance whenever the theme flips -
+  // applyOptions preserves zoom/pan state, unlike a teardown-rebuild.
+  useEffect(() => {
+    chartRef.current?.applyOptions({
+      layout: { textColor: theme.faint },
+      grid: {
+        vertLines: { color: theme.grid, style: LineStyle.Dotted },
+        horzLines: { color: theme.grid, style: LineStyle.Dotted },
+      },
+      crosshair: {
+        vertLine: { color: theme.accent, labelBackgroundColor: theme.elevated },
+        horzLine: { color: theme.accent, labelBackgroundColor: theme.elevated },
+      },
+      rightPriceScale: { borderColor: theme.border },
+      timeScale: { borderColor: theme.border },
+    })
+  }, [theme])
+
   // Update series data
   useEffect(() => {
     if (!chartRef.current) return
@@ -263,17 +280,20 @@ export default function TradingViewChart({
       dotted: LineStyle.Dotted,
     } as const
 
-    series.forEach((s) => {
+    series.forEach((s, i) => {
       if (!chartRef.current) return
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let newSeries: ISeriesApi<any>
       const ls = lineStyleEnum[s.lineStyle ?? 'solid']
+      // Fixed-order categorical slot when the caller didn't pin a color.
+      const fallback = theme.series[i % theme.series.length]
+      const color = s.color ?? fallback
 
       if (s.type === 'area') {
         newSeries = chartRef.current.addSeries(AreaSeries, {
-          lineColor: s.color ?? '#D4A574',
-          topColor: s.topColor ?? (s.color ? `${s.color}33` : '#D4A57433'),
+          lineColor: color,
+          topColor: s.topColor ?? `${color}33`,
           bottomColor: s.bottomColor ?? 'transparent',
           lineWidth: (s.lineWidth ?? 2) as 1 | 2 | 3 | 4,
           lineStyle: ls,
@@ -281,7 +301,7 @@ export default function TradingViewChart({
         })
       } else {
         newSeries = chartRef.current.addSeries(LineSeries, {
-          color: s.color ?? '#D4A574',
+          color,
           lineWidth: (s.lineWidth ?? 2) as 1 | 2 | 3 | 4,
           lineStyle: ls,
           title: s.title,
@@ -295,10 +315,10 @@ export default function TradingViewChart({
     if (fitContent && seriesRefs.current.length > 0) {
       chartRef.current.timeScale().fitContent()
     }
-  }, [series, fitContent])
+  }, [series, fitContent, theme])
 
   // Decide left/right alignment from the captured container width
-  // (no ref reads during render — React 19 disallows that).
+  // (no ref reads during render - React 19 disallows that).
   const tooltipOnRight = tooltip.containerWidth > 0 && tooltip.x > tooltip.containerWidth * 0.65
   return (
     <div className={className} style={{ position: 'relative', width: '100%', height }}>
@@ -316,19 +336,19 @@ export default function TradingViewChart({
             right: tooltipOnRight ? tooltip.containerWidth - tooltip.x + 12 : undefined,
             top: Math.max(8, tooltip.y - 8),
             pointerEvents: 'none',
-            backgroundColor: 'rgba(26, 37, 64, 0.96)',
-            border: '1px solid #2A3654',
-            borderRadius: 6,
+            backgroundColor: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 8,
             padding: '6px 10px',
-            fontFamily: 'JetBrains Mono, monospace',
+            fontFamily: FONT_MONO,
             fontSize: 11,
-            color: '#E8ECF4',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+            color: 'var(--text-primary)',
+            boxShadow: 'var(--shadow-card)',
             whiteSpace: 'nowrap',
             zIndex: 10,
           }}
         >
-          <div style={{ color: '#8896B3', marginBottom: 3 }}>{tooltip.date}</div>
+          <div style={{ color: 'var(--text-muted)', marginBottom: 3 }}>{tooltip.date}</div>
           {tooltip.rows.map((r) => (
             <div
               key={r.title}
@@ -343,9 +363,9 @@ export default function TradingViewChart({
                   flexShrink: 0,
                 }}
               />
-              <span style={{ color: '#8896B3' }}>{r.title}</span>
-              <span style={{ marginLeft: 'auto', color: r.color, fontWeight: 600 }}>
-                {r.value.toFixed(r.decimals)}{r.unit ? ` ${r.unit}` : ''}
+              <span style={{ color: 'var(--text-secondary)' }}>{r.title}</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--text-primary)', fontWeight: 600 }}>
+                {fmtNum(r.value, r.decimals)}{r.unit ? ` ${r.unit}` : ''}
               </span>
             </div>
           ))}

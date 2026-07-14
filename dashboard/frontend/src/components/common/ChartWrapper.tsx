@@ -44,7 +44,7 @@ function captureCanvas(container: HTMLElement, filename: string) {
   if (!ctx) return
 
   ctx.fillStyle =
-    getComputedStyle(container).getPropertyValue('--bg-surface').trim() || '#0B1220'
+    getComputedStyle(container).getPropertyValue('--bg-surface').trim() || '#101A36'
   ctx.fillRect(0, 0, out.width, out.height)
 
   for (const canvas of canvases) {
@@ -112,7 +112,7 @@ export default function ChartWrapper({
             className="p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title="Export PNG"
             style={{ color: 'var(--text-muted)' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent-copper)')}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent-primary)')}
             onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)')}
           >
             <ImageIcon size={14} />
@@ -123,7 +123,7 @@ export default function ChartWrapper({
               className="p-1.5 rounded transition-colors"
               title="Export CSV"
               style={{ color: 'var(--text-muted)' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent-copper)')}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent-primary)')}
               onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)')}
             >
               <Download size={14} />

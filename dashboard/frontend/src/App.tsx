@@ -13,7 +13,7 @@ const ForecastPage = lazy(() => import('./pages/ForecastPage'))
 const AncillaryPage = lazy(() => import('./pages/AncillaryPage'))
 
 // Each route is wrapped in its own boundary so a render error on one page
-// doesn't blank the whole app — the user can still navigate elsewhere.
+// doesn't blank the whole app - the user can still navigate elsewhere.
 function withBoundary(label: string, node: ReactNode) {
   return <PageErrorBoundary label={label}>{node}</PageErrorBoundary>
 }

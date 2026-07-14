@@ -9,6 +9,13 @@ interface Props {
   expanded: boolean
 }
 
+/** Reserved status colors (good / warning / serious) - theme-aware via CSS vars. */
+const STATUS_COLORS = {
+  fresh: 'var(--accent-green)',
+  warn: 'var(--accent-amber)',
+  stale: 'var(--accent-red)',
+} as const
+
 /**
  * Sidebar-friendly data-freshness summary. Reads /api/data-status (which
  * pulls from the upstream provenance table) and surfaces fresh/warn/stale
@@ -23,7 +30,7 @@ export default function DataFreshnessPill({ expanded }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ['data-status'],
     queryFn: () => api.dataStatus(),
-    // Refresh every 5 min — provenance won't move faster than that.
+    // Refresh every 5 min - provenance won't move faster than that.
     staleTime: 5 * 60_000,
     refetchInterval: 5 * 60_000,
   })
@@ -37,11 +44,7 @@ export default function DataFreshnessPill({ expanded }: Props) {
         ? 'warn'
         : 'fresh'
     : 'fresh'
-  const dotColor = {
-    fresh: '#22D3EE',
-    warn: '#FACC15',
-    stale: '#F87171',
-  }[worst]
+  const dotColor = STATUS_COLORS[worst]
 
   if (!expanded) {
     return (
@@ -51,7 +54,7 @@ export default function DataFreshnessPill({ expanded }: Props) {
       >
         <span
           className="block w-2 h-2 rounded-full"
-          style={{ backgroundColor: isLoading ? '#5A6A8A' : dotColor }}
+          style={{ backgroundColor: isLoading ? 'var(--text-muted)' : dotColor }}
         />
       </div>
     )
@@ -95,9 +98,9 @@ function FreshnessCounts({ summary }: { summary: { fresh: number; warn: number; 
       className="inline-flex items-center gap-1.5 text-[10px]"
       style={{ fontFamily: 'JetBrains Mono, monospace' }}
     >
-      {summary.stale > 0 && <Pill color="#F87171" count={summary.stale} />}
-      {summary.warn > 0 && <Pill color="#FACC15" count={summary.warn} />}
-      {summary.fresh > 0 && <Pill color="#22D3EE" count={summary.fresh} />}
+      {summary.stale > 0 && <Pill color={STATUS_COLORS.stale} count={summary.stale} />}
+      {summary.warn > 0 && <Pill color={STATUS_COLORS.warn} count={summary.warn} />}
+      {summary.fresh > 0 && <Pill color={STATUS_COLORS.fresh} count={summary.fresh} />}
     </span>
   )
 }
@@ -131,8 +134,7 @@ function SourceBreakdown({ sources }: { sources: DataStatusSource[] }) {
               height: 5,
               borderRadius: '50%',
               flexShrink: 0,
-              backgroundColor:
-                s.status === 'fresh' ? '#22D3EE' : s.status === 'warn' ? '#FACC15' : '#F87171',
+              backgroundColor: STATUS_COLORS[s.status as keyof typeof STATUS_COLORS] ?? STATUS_COLORS.stale,
             }}
           />
           <span style={{ color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

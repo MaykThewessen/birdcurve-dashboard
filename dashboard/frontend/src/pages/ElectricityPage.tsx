@@ -11,7 +11,9 @@ import TradingViewChart, { type TradingViewSeries } from '../components/charts/T
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { UTCTimestamp } from 'lightweight-charts'
 import type { EChartsOption } from 'echarts'
-import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
+import { useChartTheme } from '../hooks/useChartTheme'
+import { mixHex, type ChartTheme } from '../lib/echarts-theme'
+import { fmtNum } from '../lib/format'
 import PageShell from '../components/common/PageShell'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -46,42 +48,39 @@ function YearSelector({ value, onChange }: { value: number; onChange: (y: number
   )
 }
 
-const SUPPLY_COLORS = {
-  load: '#D4A574',
-  pv: '#FDE68A',
-  wind_onshore: '#4ADE80',
-  wind_offshore: '#22D3EE',
-}
-
 const SUPPLY_LABELS: Record<string, string> = {
   load: 'Load',
   pv: 'Solar PV',
-  wind_onshore: 'Wind Onshore',
-  wind_offshore: 'Wind Offshore',
+  wind_onshore: 'Wind onshore',
+  wind_offshore: 'Wind offshore',
 }
 
 type OverlayKey = 'load' | 'pv' | 'wind_onshore' | 'wind_offshore'
 
-function formatPrice(v: number | null | undefined): string {
-  if (v == null || isNaN(v)) return '—'
-  return v.toFixed(2)
-}
-
-// Chronological color ramp: oldest year cool blue → newest year warm copper.
-// Uses HSL so it scales to any year count without a hardcoded palette.
-function yearColor(yearIdx: number, total: number): string {
-  if (total <= 1) return 'hsl(30, 70%, 60%)'
-  const t = yearIdx / (total - 1)
-  const hue = 220 - (220 - 30) * t
-  const sat = 50 + t * 30
-  const light = 58 + t * 6
-  return `hsl(${hue.toFixed(0)}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)`
+// Years are ordered, so they get a sequential single-hue ramp (subdued for
+// old, saturated for recent); the latest year is drawn separately in amber.
+function yearColor(yearIdx: number, total: number, t: ChartTheme): string {
+  if (total <= 1) return t.seq.to
+  return mixHex(t.seq.from, t.seq.to, yearIdx / (total - 1))
 }
 
 export default function ElectricityPage() {
+  const t = useChartTheme()
   const dateRange = useFilterStore((s) => s.dateRange)
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR)
   const [activeOverlays, setActiveOverlays] = useState<Set<OverlayKey>>(new Set())
+
+  // Overlay colors, one t.series slot each, distinct from the DA price line
+  // (t.series[1]) so no two series in the main chart share a slot.
+  const SUPPLY_COLORS: Record<OverlayKey, string> = useMemo(
+    () => ({
+      load: t.series[0],
+      pv: t.series[4],
+      wind_onshore: t.series[5],
+      wind_offshore: t.series[2],
+    }),
+    [t],
+  )
 
   // chartRange tracks the user's current zoom on the historical chart.
   // It defaults to (and resets with) the global dateRange but is overridden
@@ -103,7 +102,7 @@ export default function ElectricityPage() {
   })
 
 
-  // Main chart data — resolution=auto so the backend picks 15min/hourly/daily
+  // Main chart data - resolution=auto so the backend picks 15min/hourly/daily
   // based on chartRange span. Zoom in narrows the span; the backend bumps
   // resolution; the chart re-renders at finer granularity.
   const { data: chartData, isLoading: chartLoading, error: chartError } = useQuery({
@@ -111,7 +110,7 @@ export default function ElectricityPage() {
     queryFn: () => api.electricityHistorical(chartRange.start, chartRange.end, 8000),
   })
 
-  // Duration curves — one per historical year, plotted on a shared
+  // Duration curves - one per historical year, plotted on a shared
   // "% of hours within year" X axis so partial and full years overlay.
   const {
     data: durationCurvesData,
@@ -133,7 +132,7 @@ export default function ElectricityPage() {
     const prices = kpiHistData?.da_prices ?? []
     if (!prices.length) return null
 
-    // Timestamps are UTC, so "today" must be the UTC date — the local date
+    // Timestamps are UTC, so "today" must be the UTC date - the local date
     // mismatches for a few hours around local midnight.
     const today = new Date().toISOString().slice(0, 10)
     const todayPrices = prices
@@ -157,7 +156,7 @@ export default function ElectricityPage() {
     const series: TradingViewSeries[] = []
     if (!chartData) return series
 
-    // DA price — primary line
+    // DA price - primary line
     const daPrices = chartData.da_prices
       .map((p) => ({
         time: (new Date(p.timestamp).getTime() / 1000) as UTCTimestamp,
@@ -168,9 +167,9 @@ export default function ElectricityPage() {
     if (daPrices.length > 0) {
       series.push({
         data: daPrices,
-        color: '#D4A574',
+        color: t.series[1],
         lineWidth: 2,
-        title: 'DA Price',
+        title: 'DA price',
         type: 'line',
       })
     }
@@ -207,9 +206,9 @@ export default function ElectricityPage() {
     }
 
     return series
-  }, [chartData, activeOverlays])
+  }, [chartData, activeOverlays, t, SUPPLY_COLORS])
 
-  // Duration curves — one ECharts line series per year, with a
+  // Duration curves - one ECharts line series per year, with a
   // chronological color ramp so the year drift is readable directly
   // off the chart (oldest = cool blue, newest = warm copper). The
   // latest year is drawn on top with extra weight.
@@ -220,15 +219,17 @@ export default function ElectricityPage() {
 
     const series = years.map((year, i) => {
       const isLatest = year === latestYear
+      const color = isLatest ? t.amber : yearColor(i, years.length, t)
       return {
         name: String(year),
         type: 'line' as const,
         data: curves[String(year)],
         symbol: 'none' as const,
         smooth: false,
+        itemStyle: { color },
         lineStyle: {
           width: isLatest ? 2.5 : 1.5,
-          color: yearColor(i, years.length),
+          color,
           opacity: isLatest ? 1 : 0.85,
         },
         z: isLatest ? 10 : i,
@@ -241,7 +242,7 @@ export default function ElectricityPage() {
         data: years.map(String).reverse(),  // newest first in legend
         top: 0,
         right: 16,
-        textStyle: AXIS_LABEL_STYLE,
+        textStyle: t.axisLabel,
         itemWidth: 16,
         itemHeight: 2,
       },
@@ -252,18 +253,18 @@ export default function ElectricityPage() {
         nameGap: 30,
         min: 0,
         max: 100,
-        axisLine: { lineStyle: { color: '#2A3654' } },
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, formatter: '{value}%' },
-        splitLine: { lineStyle: { color: '#1A2540' } },
+        axisLine: t.axisLine,
+        axisLabel: { ...t.axisLabel, formatter: '{value}%' },
+        splitLine: t.splitLine,
       },
       yAxis: {
         type: 'value',
         name: 'EUR/MWh',
         nameLocation: 'middle',
         nameGap: 50,
-        axisLine: { lineStyle: { color: '#2A3654' } },
-        axisLabel: AXIS_LABEL_STYLE,
-        splitLine: { lineStyle: { color: '#1A2540' } },
+        axisLine: t.axisLine,
+        axisLabel: t.axisLabel,
+        splitLine: t.splitLine,
       },
       tooltip: {
         trigger: 'axis',
@@ -276,17 +277,17 @@ export default function ElectricityPage() {
             .map((p) => {
               const yr = p.seriesName
               const s = stats[yr]
-              const tail = s ? ` <span style="color:#5B6B85">(neg ${s.negative_hours}h, peak ${s.peak_hours}h)</span>` : ''
-              return `<span style="color:${p.color}">●</span> <b>${yr}</b>: ${p.value[1].toFixed(2)} EUR/MWh${tail}`
+              const tail = s ? ` <span style="color:${t.muted}">(neg ${s.negative_hours}h, peak ${s.peak_hours}h)</span>` : ''
+              return `<span style="color:${p.color}">●</span> <b>${yr}</b>: ${fmtNum(p.value[1], 2)} EUR/MWh${tail}`
             })
-          return `<div style="font-family:JetBrains Mono,monospace;font-size:12px"><b>${pct.toFixed(1)}%</b> of hours<br/>${lines.join('<br/>')}</div>`
+          return `<div style="${t.tooltipCss}"><b>${fmtNum(pct, 1)}%</b> of hours<br/>${lines.join('<br/>')}</div>`
         },
       },
       series,
       // Zero line for visual reference of negative-price tail.
       markLine: undefined,
     }
-  }, [durationCurvesData])
+  }, [durationCurvesData, t])
 
   // Heatmap ECharts option
   const heatmapOption: EChartsOption = useMemo(() => {
@@ -311,14 +312,14 @@ export default function ElectricityPage() {
       xAxis: {
         type: 'category',
         data: months.map((m) => MONTH_NAMES[m - 1] ?? String(m)),
-        axisLabel: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
-        axisLine: { lineStyle: { color: '#2A3654' } },
+        axisLabel: { color: t.faint, fontFamily: 'Outfit, sans-serif', fontSize: 11 },
+        axisLine: t.axisLine,
       },
       yAxis: {
         type: 'category',
         data: hours.map((h) => `${String(h).padStart(2, '0')}:00`),
-        axisLabel: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
-        axisLine: { lineStyle: { color: '#2A3654' } },
+        axisLabel: { color: t.faint, fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
+        axisLine: t.axisLine,
       },
       visualMap: {
         min: minVal,
@@ -327,9 +328,9 @@ export default function ElectricityPage() {
         orient: 'horizontal',
         left: 'center',
         bottom: 0,
-        textStyle: { color: '#8896B3', fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
+        textStyle: { color: t.faint, fontFamily: 'JetBrains Mono, monospace', fontSize: 10 },
         inRange: {
-          color: ['#3B82F6', '#1A2540', '#F87171'],
+          color: [t.accent, t.grid, t.red],
         },
       },
       tooltip: {
@@ -338,7 +339,7 @@ export default function ElectricityPage() {
           const [mi, hi, val] = p.data
           const monthName = MONTH_NAMES[months[mi] - 1] ?? String(months[mi])
           const hour = hours[hi]
-          return `${monthName}, ${String(hour).padStart(2, '0')}:00<br/>Avg: <b>${val} EUR/MWh</b>`
+          return `${monthName}, ${String(hour).padStart(2, '0')}:00<br/>Avg: <b>${fmtNum(val, 1)} EUR/MWh</b>`
         },
       },
       series: [
@@ -352,7 +353,7 @@ export default function ElectricityPage() {
         },
       ],
     }
-  }, [heatmapData])
+  }, [heatmapData, t])
 
   function toggleOverlay(key: OverlayKey) {
     setActiveOverlays((prev) => {
@@ -382,7 +383,7 @@ export default function ElectricityPage() {
             className="text-xl font-bold"
             style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
           >
-            Electricity Market
+            Electricity market
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             Historical DA prices, supply mix and load data for the Netherlands
@@ -394,35 +395,35 @@ export default function ElectricityPage() {
       {/* KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <KpiCard
-          title="Latest DA Price"
-          value={formatPrice(kpis?.latest)}
+          title="Latest DA price"
+          value={fmtNum(kpis?.latest, 2)}
           unit="EUR/MWh"
           loading={kpiLoading}
           staggerIndex={0}
         />
         <KpiCard
-          title="Avg Price (30d)"
-          value={formatPrice(kpis?.avgMonth)}
+          title="Avg price (30d)"
+          value={fmtNum(kpis?.avgMonth, 2)}
           unit="EUR/MWh"
           loading={kpiLoading}
           staggerIndex={1}
         />
         <KpiCard
-          title="Max Today"
-          value={formatPrice(kpis?.maxToday)}
+          title="Max today"
+          value={fmtNum(kpis?.maxToday, 2)}
           unit="EUR/MWh"
           loading={kpiLoading}
           staggerIndex={2}
         />
         <KpiCard
-          title="Min Today"
-          value={formatPrice(kpis?.minToday)}
+          title="Min today"
+          value={fmtNum(kpis?.minToday, 2)}
           unit="EUR/MWh"
           loading={kpiLoading}
           staggerIndex={3}
         />
         <KpiCard
-          title={`Negative Hours (${CURRENT_YEAR})`}
+          title={`Negative hours (${CURRENT_YEAR})`}
           value={kpis?.negHours != null ? String(kpis.negHours) : '—'}
           unit="h"
           loading={kpiLoading}
@@ -461,7 +462,7 @@ export default function ElectricityPage() {
 
       {/* Main time-series chart */}
       <ChartWrapper
-        title="DA Price History"
+        title="DA price history"
         subtitle="EUR/MWh · hourly"
         loading={chartLoading}
         error={chartError as Error | null}
@@ -480,7 +481,7 @@ export default function ElectricityPage() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* Duration curve */}
         <ChartWrapper
-          title="Price Duration Curve"
+          title="Price duration curve"
           subtitle="Sorted hours descending"
           loading={durationLoading}
           error={durationError as Error | null}
@@ -503,7 +504,7 @@ export default function ElectricityPage() {
 
         {/* Heatmap */}
         <ChartWrapper
-          title="Price Heatmap"
+          title="Price heatmap"
           subtitle="Avg EUR/MWh by hour × month"
           loading={heatmapLoading}
           error={heatmapError as Error | null}

@@ -10,25 +10,29 @@ import ChartWrapper from '../components/common/ChartWrapper'
 import TradingViewChart, { type TradingViewSeries } from '../components/charts/TradingViewChart'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
-import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
-import { fmtEur, fmtKeur } from '../lib/format'
+import { useChartTheme } from '../hooks/useChartTheme'
+import type { ChartTheme } from '../lib/echarts-theme'
+import { fmtEur, fmtNum } from '../lib/format'
 import { toSeriesPoints } from '../lib/series'
 import PageShell from '../components/common/PageShell'
 
 // State labels and colors for regulation donut
-const STATE_CONFIG: Record<number, { label: string; color: string }> = {
-  [-1]: { label: 'Down Reg', color: '#60A5FA' },
-  [0]: { label: 'No Reg', color: '#5A6A8A' },
-  [1]: { label: 'Up Reg', color: '#D4A574' },
-  [2]: { label: 'Mixed', color: '#A78BFA' },
+function getStateConfig(t: ChartTheme): Record<number, { label: string; color: string }> {
+  return {
+    [-1]: { label: 'Down reg', color: t.series[0] },
+    [0]: { label: 'No reg', color: t.muted },
+    [1]: { label: 'Up reg', color: t.series[1] },
+    [2]: { label: 'Mixed', color: t.series[3] },
+  }
 }
 
 
 export default function AncillaryPage() {
+  const t = useChartTheme()
   const scenario = useFilterStore((s) => s.scenario)
   const dateRange = useFilterStore((s) => s.dateRange)
   const [selectedYear, setSelectedYear] = useState<number>(2025)
-  // BESS revenue stacking is misleading by default — the same MW can't
+  // BESS revenue stacking is misleading by default - the same MW can't
   // simultaneously earn aFRR cap, FCR cap, AND aFRR energy. 'split-mw'
   // assumes the operator co-deploys (the upper-bound), 'best-market'
   // shows the realistic single-strategy revenue per year.
@@ -36,7 +40,7 @@ export default function AncillaryPage() {
 
   // Capacity prices come from DuckDB historical first; the scenario-driven
   // forecast file only fills in the future tail. So this query runs even
-  // before the scenario is selected — historical prices need no scenario.
+  // before the scenario is selected - historical prices need no scenario.
   const { data: capacityData, isLoading: capacityLoading, error: capacityError } = useQuery({
     queryKey: ['ancillary-capacity', dateRange.start, dateRange.end, scenario],
     queryFn: () => api.ancillaryCapacity(dateRange.start, dateRange.end, scenario || null),
@@ -57,7 +61,7 @@ export default function AncillaryPage() {
   // KPI helpers
   function latestCapacity(arr?: (number | null)[]): number | undefined {
     if (!arr || arr.length === 0) return undefined
-    // Walk from the tail to skip trailing nulls — the latest *actual* price.
+    // Walk from the tail to skip trailing nulls - the latest *actual* price.
     for (let i = arr.length - 1; i >= 0; i--) {
       const v = arr[i]
       if (v != null) return v
@@ -73,23 +77,23 @@ export default function AncillaryPage() {
 
   const kpiCards = [
     {
-      title: 'aFRR Cap Price (latest)',
+      title: 'aFRR cap price (latest)',
       value: fmtEur(latestCapacity(capacityData?.afrr_cap_up), 2),
       unit: 'EUR/MW/h',
     },
     {
-      title: 'FCR Cap Price (latest)',
+      title: 'FCR cap price (latest)',
       value: fmtEur(latestCapacity(capacityData?.fcr_cap_price), 2),
       unit: 'EUR/MW/h',
     },
     {
-      title: 'aFRR Cap Rev 2030',
-      value: fmtKeur(revenueForYear(2030, revenueData?.afrr_cap_revenue)),
+      title: 'aFRR cap rev 2030',
+      value: fmtNum(revenueForYear(2030, revenueData?.afrr_cap_revenue), 1),
       unit: 'k€/MW/y',
     },
     {
-      title: 'FCR Cap Rev 2030',
-      value: fmtKeur(revenueForYear(2030, revenueData?.fcr_cap_revenue)),
+      title: 'FCR cap rev 2030',
+      value: fmtNum(revenueForYear(2030, revenueData?.fcr_cap_revenue), 1),
       unit: 'k€/MW/y',
     },
   ]
@@ -127,9 +131,9 @@ export default function AncillaryPage() {
 
     const series: TradingViewSeries[] = []
     const metrics: { key: keyof typeof capacityData; color: string; title: string }[] = [
-      { key: 'afrr_cap_up', color: '#D4A574', title: 'aFRR Cap Up' },
-      { key: 'afrr_cap_down', color: '#60A5FA', title: 'aFRR Cap Down' },
-      { key: 'fcr_cap_price', color: '#A78BFA', title: 'FCR Cap' },
+      { key: 'afrr_cap_up', color: t.series[1], title: 'aFRR cap up' },
+      { key: 'afrr_cap_down', color: t.series[0], title: 'aFRR cap down' },
+      { key: 'fcr_cap_price', color: t.series[3], title: 'FCR cap' },
     ]
     for (const { key, color, title } of metrics) {
       const arr = capacityData[key] as (number | null)[]
@@ -139,9 +143,9 @@ export default function AncillaryPage() {
       if (fcst.length) series.push({ data: fcst, color, lineWidth: 1, title: `${title} (forecast)`, type: 'line', lineStyle: 'dashed' })
     }
     return series
-  }, [capacityData])
+  }, [capacityData, t])
 
-  // 15-min imbalance + aFRR energy prices — historical-only, no scenario.
+  // 15-min imbalance + aFRR energy prices - historical-only, no scenario.
   const { data: imbData, isLoading: imbLoading, error: imbError } = useQuery({
     queryKey: ['imbalance-prices', dateRange.start, dateRange.end],
     queryFn: () => api.imbalancePrices(dateRange.start, dateRange.end),
@@ -150,60 +154,60 @@ export default function AncillaryPage() {
   const imbalanceSeries: TradingViewSeries[] = useMemo(() => {
     if (!imbData || imbData.timestamp.length === 0) return []
     return [
-      { data: toSeriesPoints(imbData.timestamp, imbData.afrr_energy_up), color: '#F87171', lineWidth: 1, title: 'aFRR Energy Up', type: 'line' as const },
-      { data: toSeriesPoints(imbData.timestamp, imbData.afrr_energy_down), color: '#4ADE80', lineWidth: 1, title: 'aFRR Energy Down', type: 'line' as const },
-      { data: toSeriesPoints(imbData.timestamp, imbData.imb_short), color: '#FB923C', lineWidth: 1, title: 'Imb Short', type: 'line' as const },
-      { data: toSeriesPoints(imbData.timestamp, imbData.imb_long), color: '#22D3EE', lineWidth: 1, title: 'Imb Long', type: 'line' as const },
+      { data: toSeriesPoints(imbData.timestamp, imbData.afrr_energy_up), color: t.red, lineWidth: 1, title: 'aFRR energy up', type: 'line' as const },
+      { data: toSeriesPoints(imbData.timestamp, imbData.afrr_energy_down), color: t.series[5], lineWidth: 1, title: 'aFRR energy down', type: 'line' as const },
+      { data: toSeriesPoints(imbData.timestamp, imbData.imb_short), color: t.amber, lineWidth: 1, title: 'Imb short', type: 'line' as const },
+      { data: toSeriesPoints(imbData.timestamp, imbData.imb_long), color: t.series[2], lineWidth: 1, title: 'Imb long', type: 'line' as const },
     ]
-  }, [imbData])
+  }, [imbData, t])
 
   // Annual revenue stacked bar
   const revenueOption: EChartsOption = useMemo(() => ({
-    color: ['#22D3EE', '#A78BFA', '#4ADE80'],
+    color: [t.series[2], t.series[3], t.series[5]],
     legend: {
-      data: ['aFRR Capacity', 'FCR Capacity', 'aFRR Energy'],
+      data: ['aFRR capacity', 'FCR capacity', 'aFRR energy'],
       top: 4,
     },
     xAxis: {
       type: 'category',
       data: revenueData?.years?.map(String) ?? [],
-      axisLabel: { ...AXIS_LABEL_STYLE, rotate: 45 },
-      axisLine: { lineStyle: { color: '#2A3654' } },
+      axisLabel: { ...t.axisLabel, rotate: 45 },
+      axisLine: { lineStyle: { color: t.border } },
     },
     yAxis: {
       type: 'value',
       name: 'k€/MW/y',
-      nameTextStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
+      nameTextStyle: t.nameTextStyle,
       axisLabel: {
-        ...AXIS_LABEL_STYLE,
-        formatter: (v: number) => (v / 1000).toFixed(0),
+        ...t.axisLabel,
+        formatter: (v: number) => fmtNum(v, 0),
       },
-      splitLine: { lineStyle: { color: '#1A2540', type: 'dashed' } },
+      splitLine: t.splitLine,
     },
     series: [
       {
-        name: 'aFRR Capacity',
+        name: 'aFRR capacity',
         type: 'bar',
         stack: revenueMode === 'split-mw' ? 'revenue' : undefined,
         barMaxWidth: 20,
         data: revenueData?.afrr_cap_revenue ?? [],
-        itemStyle: { color: '#22D3EE' },
+        itemStyle: { color: t.series[2] },
       },
       {
-        name: 'FCR Capacity',
+        name: 'FCR capacity',
         type: 'bar',
         stack: revenueMode === 'split-mw' ? 'revenue' : undefined,
         barMaxWidth: 20,
         data: revenueData?.fcr_cap_revenue ?? [],
-        itemStyle: { color: '#A78BFA' },
+        itemStyle: { color: t.series[3] },
       },
       {
-        name: 'aFRR Energy',
+        name: 'aFRR energy',
         type: 'bar',
         stack: revenueMode === 'split-mw' ? 'revenue' : undefined,
         barMaxWidth: 20,
         data: revenueData?.afrr_energy_revenue ?? [],
-        itemStyle: { color: '#4ADE80' },
+        itemStyle: { color: t.series[5] },
       },
     ],
     tooltip: {
@@ -215,23 +219,26 @@ export default function AncillaryPage() {
         const total = items.reduce((s, p) => s + Number(p.value || 0), 0)
         const lines = items.map(
           (p) =>
-            `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${(Number(p.value) / 1000).toFixed(1)} k€/MW/y</b>`,
+            `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${fmtNum(Number(p.value), 1)} k€/MW/y</b>`,
         )
-        lines.push(`<b>Total: ${(total / 1000).toFixed(1)} k€/MW/y</b>`)
-        return `<div style="font-family:JetBrains Mono,monospace;font-size:12px"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
+        lines.push(`<b>Total: ${fmtNum(total, 1)} k€/MW/y</b>`)
+        return `<div style="${t.tooltipCss}"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
       },
     },
     grid: { top: 48, right: 20, bottom: 56, left: 70, containLabel: true },
-  }), [revenueData, revenueMode])
+  }), [revenueData, revenueMode, t])
+
+  // State labels and colors for regulation donut, keyed to the active theme
+  const stateConfig = useMemo(() => getStateConfig(t), [t])
 
   // Regulation states donut chart
   const donutData = useMemo(() =>
     regStates?.states?.map((s) => ({
-      name: STATE_CONFIG[s.state]?.label ?? `State ${s.state}`,
+      name: stateConfig[s.state]?.label ?? `State ${s.state}`,
       value: s.count,
-      itemStyle: { color: STATE_CONFIG[s.state]?.color ?? '#5A6A8A' },
+      itemStyle: { color: stateConfig[s.state]?.color ?? t.muted },
     })) ?? [],
-    [regStates],
+    [regStates, stateConfig, t],
   )
 
   const regulationOption: EChartsOption = useMemo(() => ({
@@ -239,21 +246,19 @@ export default function AncillaryPage() {
       orient: 'vertical',
       right: 10,
       top: 'center',
-      textStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 12 },
+      textStyle: { color: t.muted, fontFamily: 'Outfit, sans-serif', fontSize: 12 },
     },
     series: [
       {
-        name: 'Regulation State',
+        name: 'Regulation state',
         type: 'pie',
         radius: ['40%', '70%'],
         center: ['40%', '50%'],
         avoidLabelOverlap: true,
         label: {
           show: true,
-          formatter: ((p: { name?: string; percent?: number }) => `${p.name ?? ''}\n${(p.percent ?? 0).toFixed(1)}%`) as never,
-          color: '#8896B3',
-          fontFamily: 'JetBrains Mono, monospace',
-          fontSize: 11,
+          formatter: ((p: { name?: string; percent?: number }) => `${p.name ?? ''}\n${fmtNum(p.percent ?? 0, 1)}%`) as never,
+          ...t.axisLabel,
         },
         data: donutData,
         emphasis: {
@@ -265,16 +270,16 @@ export default function AncillaryPage() {
       trigger: 'item',
       formatter: (p: unknown) => {
         const param = p as { name: string; value: number; percent: number; color: string }
-        return `<div style="font-family:JetBrains Mono,monospace;font-size:12px">
+        return `<div style="${t.tooltipCss}">
           <span style="color:${param.color}">●</span> <b>${param.name}</b><br/>
           Count: ${param.value.toLocaleString()}<br/>
-          Share: <b>${param.percent?.toFixed(1)}%</b>
+          Share: <b>${fmtNum(param.percent, 1)}%</b>
         </div>`
       },
     },
-  }), [donutData])
+  }), [donutData, t])
 
-  // Year options for regulation state selector — derived from the global
+  // Year options for regulation state selector - derived from the global
   // dateRange so the list always covers the selected data window, plus a
   // sensible future cap so it doesn't grow unboundedly.
   const yearOptions = useMemo(() => {
@@ -307,7 +312,7 @@ export default function AncillaryPage() {
             className="text-xl font-bold"
             style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
           >
-            Ancillary Markets
+            Ancillary markets
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             aFRR and FCR capacity revenues, regulation states and imbalance prices
@@ -335,7 +340,7 @@ export default function AncillaryPage() {
         </div>
       ) : (
         <>
-          {/* KPI row — 4 cards */}
+          {/* KPI row - 4 cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {kpiCards.map(({ title, value, unit }, i) => (
               <KpiCard
@@ -349,7 +354,7 @@ export default function AncillaryPage() {
             ))}
           </div>
 
-          {/* Capacity prices — TradingView. Historical = solid lines from
+          {/* Capacity prices - TradingView. Historical = solid lines from
               DuckDB ts_4hourly; forecast = dashed lines from
               predictions_aFRR_FCR_capacity_4h. Heads-up: the forecast file
               currently emits a daily-aggregated value replicated across all
@@ -358,8 +363,8 @@ export default function AncillaryPage() {
               relative-shape signal until the upstream unit mismatch is
               reconciled. */}
           <ChartWrapper
-            title="Capacity Prices"
-            subtitle="EUR/MW/h — aFRR Up/Down · FCR (solid: actuals · dashed: forecast)"
+            title="Capacity prices"
+            subtitle="EUR/MW/h · aFRR up/down · FCR (solid: actuals, dashed: forecast)"
             loading={capacityLoading}
             error={capacityError as Error | null}
             height={320}
@@ -378,10 +383,10 @@ export default function AncillaryPage() {
             )}
           </ChartWrapper>
 
-          {/* aFRR energy + imbalance prices — historical-only at 15-min granularity */}
+          {/* aFRR energy + imbalance prices - historical-only at 15-min granularity */}
           <ChartWrapper
-            title="Imbalance & aFRR Energy Prices"
-            subtitle="EUR/MWh — 15-min cleared prices from TenneT (ts_15min)"
+            title="Imbalance & aFRR energy prices"
+            subtitle="EUR/MWh · 15-min cleared prices from TenneT (ts_15min)"
             loading={imbLoading}
             error={imbError as Error | null}
             height={320}
@@ -411,11 +416,11 @@ export default function AncillaryPage() {
           {/* Annual revenue + Regulation states */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <ChartWrapper
-              title="Annual Ancillary Revenue"
+              title="Annual ancillary revenue"
               subtitle={
                 revenueMode === 'split-mw'
-                  ? 'k€/MW/y — stacked, assumes the operator splits MW across all three products'
-                  : 'k€/MW/y — side-by-side, single-product strategy per MW'
+                  ? 'k€/MW/y · stacked, assumes the operator splits MW across all three products'
+                  : 'k€/MW/y · side-by-side, single-product strategy per MW'
               }
               loading={revenueLoading}
               error={revenueError as Error | null}
@@ -439,15 +444,17 @@ export default function AncillaryPage() {
                     style={{
                       fontFamily: 'JetBrains Mono, monospace',
                       borderColor:
-                        revenueMode === mode ? 'var(--accent-copper)' : 'var(--border-default)',
-                      color: revenueMode === mode ? 'var(--accent-copper)' : 'var(--text-muted)',
+                        revenueMode === mode ? 'var(--accent-primary)' : 'var(--border-default)',
+                      color: revenueMode === mode ? 'var(--accent-primary)' : 'var(--text-muted)',
                       backgroundColor:
-                        revenueMode === mode ? 'rgba(212,165,116,0.10)' : 'transparent',
+                        revenueMode === mode
+                          ? 'color-mix(in srgb, var(--accent-primary) 10%, transparent)'
+                          : 'transparent',
                     }}
                     title={
                       mode === 'split-mw'
-                        ? 'Stacked — assumes the same MW earns all three products simultaneously (upper bound)'
-                        : 'Side-by-side — realistic single-product per MW (mutually exclusive capacity reservation)'
+                        ? 'Stacked: assumes the same MW earns all three products simultaneously (upper bound)'
+                        : 'Side-by-side: realistic single-product per MW (mutually exclusive capacity reservation)'
                     }
                   >
                     {mode === 'split-mw' ? 'Split MW' : 'Best market'}
@@ -458,7 +465,7 @@ export default function AncillaryPage() {
             </ChartWrapper>
 
             <ChartWrapper
-              title="Regulation States"
+              title="Regulation states"
               subtitle={`Distribution for ${selectedYear}`}
               loading={regLoading}
               error={regError as Error | null}
@@ -513,7 +520,7 @@ export default function AncillaryPage() {
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Regulation states:
             </span>
-            {Object.entries(STATE_CONFIG).map(([state, { label, color }]) => (
+            {Object.entries(stateConfig).map(([state, { label, color }]) => (
               <div key={state} className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color }} />
                 <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>

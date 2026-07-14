@@ -10,14 +10,15 @@ import ChartWrapper from '../components/common/ChartWrapper'
 import TradingViewChart, { type TradingViewSeries } from '../components/charts/TradingViewChart'
 import EChartsWrapper from '../components/charts/EChartsWrapper'
 import type { EChartsOption } from 'echarts'
-import { AXIS_LABEL_STYLE } from '../lib/echarts-theme'
-import { fmtEur, fmtKeur } from '../lib/format'
+import { useChartTheme } from '../hooks/useChartTheme'
+import { fmtEur, fmtNum } from '../lib/format'
 import { toSeriesPoints } from '../lib/series'
 import PageShell from '../components/common/PageShell'
 
 const TARGET_YEARS = [2025, 2030, 2040, 2050]
 
 export default function ForecastPage() {
+  const t = useChartTheme()
   const scenario = useFilterStore((s) => s.scenario)
   const dateRange = useFilterStore((s) => s.dateRange)
 
@@ -38,7 +39,7 @@ export default function ForecastPage() {
     enabled: !!scenario,
   })
 
-  // KPI helpers — find index by year
+  // KPI helpers: find index by year
   function statForYear(year: number, arr?: number[]): number | undefined {
     if (!statsData || !arr) return undefined
     const idx = statsData.years.indexOf(year)
@@ -68,7 +69,7 @@ export default function ForecastPage() {
     },
     {
       title: 'BESS 4h Rev 2030',
-      value: fmtKeur(statForYear(2030, statsData?.bess_4h)),
+      value: fmtNum(statForYear(2030, statsData?.bess_4h), 1),
       unit: 'k€/MW/y',
     },
   ]
@@ -85,7 +86,7 @@ export default function ForecastPage() {
     if (actualPoints.length > 0) {
       series.push({
         data: actualPoints,
-        color: '#D4A574',
+        color: t.series[1],
         lineWidth: 1,
         title: 'Actual',
         type: 'line',
@@ -97,49 +98,49 @@ export default function ForecastPage() {
     if (predictedPoints.length > 0) {
       series.push({
         data: predictedPoints,
-        color: '#60A5FA',
+        color: t.series[0],
         lineWidth: 1,
         title: 'Predicted',
         type: 'line',
       })
     }
     return series
-  }, [forecastData])
+  }, [forecastData, t])
 
   // Annual statistics ECharts bar chart
   const annualStatsOption: EChartsOption = useMemo(() => ({
-    color: ['#D4A574', '#60A5FA'],
-    legend: { data: ['Avg DA Price', 'Daily Spread'], top: 4 },
+    color: [t.series[1], t.series[0]],
+    legend: { data: ['Avg DA price', 'Daily spread'], top: 4 },
     xAxis: {
       type: 'category',
       data: statsData?.years?.map(String) ?? [],
-      axisLabel: { ...AXIS_LABEL_STYLE, rotate: 45 },
-      axisLine: { lineStyle: { color: '#2A3654' } },
+      axisLabel: { ...t.axisLabel, rotate: 45 },
+      axisLine: { lineStyle: { color: t.border } },
     },
     yAxis: {
       type: 'value',
       name: 'EUR/MWh',
-      nameTextStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
-      axisLabel: AXIS_LABEL_STYLE,
-      splitLine: { lineStyle: { color: '#1A2540', type: 'dashed' } },
+      nameTextStyle: t.nameTextStyle,
+      axisLabel: t.axisLabel,
+      splitLine: t.splitLine,
     },
     series: [
       {
-        name: 'Avg DA Price',
+        name: 'Avg DA price',
         type: 'bar',
         barMaxWidth: 14,
         data: statsData?.avg_da?.map((v) => ({
           value: v,
           // error bars via markLine not natively supported in bar, show as itemStyle
-          itemStyle: { color: '#D4A574' },
+          itemStyle: { color: t.series[1] },
         })) ?? [],
       },
       {
-        name: 'Daily Spread',
+        name: 'Daily spread',
         type: 'bar',
         barMaxWidth: 14,
         data: statsData?.spread ?? [],
-        itemStyle: { color: '#60A5FA' },
+        itemStyle: { color: t.series[0] },
       },
     ],
     tooltip: {
@@ -150,20 +151,20 @@ export default function ForecastPage() {
         const year = statsData?.years?.[items[0]?.dataIndex ?? 0] ?? ''
         const std = statsData?.std_da?.[items[0]?.dataIndex ?? 0]
         const lines = items.map(
-          (p) => `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${Number(p.value).toFixed(1)} EUR/MWh</b>`,
+          (p) => `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${fmtNum(Number(p.value), 1)} EUR/MWh</b>`,
         )
         if (std != null) {
-          lines.push(`<span style="color:#5a6a8a">± Std Dev: ${std.toFixed(1)} EUR/MWh</span>`)
+          lines.push(`<span style="color:${t.muted}">± Std Dev: ${fmtNum(std, 1)} EUR/MWh</span>`)
         }
-        return `<div style="font-family:JetBrains Mono,monospace;font-size:12px"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
+        return `<div style="${t.tooltipCss}"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
       },
     },
     grid: { top: 48, right: 20, bottom: 56, left: 60, containLabel: true },
-  }), [statsData])
+  }), [statsData, t])
 
   // BESS Revenue chart
   const bessRevenueOption: EChartsOption = useMemo(() => ({
-    color: ['#4ADE80', '#D4A574', '#F87171', '#22D3EE', '#A78BFA'],
+    color: [t.series[0], t.series[1], t.series[2], t.series[3], t.series[4]],
     legend: {
       data: ['BESS 2h DA', 'BESS 4h DA', 'BESS 8h DA', 'ID3 2h', 'aFRR Energy'],
       top: 4,
@@ -171,18 +172,19 @@ export default function ForecastPage() {
     xAxis: {
       type: 'category',
       data: statsData?.years?.map(String) ?? [],
-      axisLabel: { ...AXIS_LABEL_STYLE, rotate: 45 },
-      axisLine: { lineStyle: { color: '#2A3654' } },
+      axisLabel: { ...t.axisLabel, rotate: 45 },
+      axisLine: { lineStyle: { color: t.border } },
     },
     yAxis: {
       type: 'value',
       name: 'k€/MW/y',
-      nameTextStyle: { color: '#8896B3', fontFamily: 'Outfit, sans-serif', fontSize: 11 },
+      nameTextStyle: t.nameTextStyle,
+      // API values are already k€/MW/y: no scaling here.
       axisLabel: {
-        ...AXIS_LABEL_STYLE,
-        formatter: (v: number) => (v / 1000).toFixed(0),
+        ...t.axisLabel,
+        formatter: (v: number) => fmtNum(v, 0),
       },
-      splitLine: { lineStyle: { color: '#1A2540', type: 'dashed' } },
+      splitLine: t.splitLine,
     },
     series: [
       {
@@ -190,35 +192,35 @@ export default function ForecastPage() {
         type: 'bar',
         barMaxWidth: 10,
         data: statsData?.bess_2h ?? [],
-        itemStyle: { color: '#4ADE80' },
+        itemStyle: { color: t.series[0] },
       },
       {
         name: 'BESS 4h DA',
         type: 'bar',
         barMaxWidth: 10,
         data: statsData?.bess_4h ?? [],
-        itemStyle: { color: '#D4A574' },
+        itemStyle: { color: t.series[1] },
       },
       {
         name: 'BESS 8h DA',
         type: 'bar',
         barMaxWidth: 10,
         data: statsData?.bess_8h ?? [],
-        itemStyle: { color: '#F87171' },
+        itemStyle: { color: t.series[2] },
       },
       {
         name: 'ID3 2h',
         type: 'bar',
         barMaxWidth: 10,
         data: statsData?.bess_id3 ?? [],
-        itemStyle: { color: '#22D3EE' },
+        itemStyle: { color: t.series[3] },
       },
       {
         name: 'aFRR Energy',
         type: 'bar',
         barMaxWidth: 10,
         data: statsData?.bess_afrr ?? [],
-        itemStyle: { color: '#A78BFA' },
+        itemStyle: { color: t.series[4] },
       },
     ],
     tooltip: {
@@ -229,13 +231,13 @@ export default function ForecastPage() {
         const year = statsData?.years?.[items[0]?.dataIndex ?? 0] ?? ''
         const lines = items.map(
           (p) =>
-            `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${(Number(p.value) / 1000).toFixed(1)} k€/MW/y</b>`,
+            `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${fmtNum(Number(p.value), 1)} k€/MW/y</b>`,
         )
-        return `<div style="font-family:JetBrains Mono,monospace;font-size:12px"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
+        return `<div style="${t.tooltipCss}"><b>${year}</b><br/>${lines.join('<br/>')}</div>`
       },
     },
     grid: { top: 56, right: 20, bottom: 56, left: 70, containLabel: true },
-  }), [statsData])
+  }), [statsData, t])
 
   // Export data for forecast
   const forecastExport =
@@ -256,7 +258,7 @@ export default function ForecastPage() {
             className="text-xl font-bold"
             style={{ color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif' }}
           >
-            Price Forecast
+            Price forecast
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             DA, ID3 and balancing market forecasts 2018–2050
@@ -284,7 +286,7 @@ export default function ForecastPage() {
         </div>
       ) : (
         <>
-          {/* KPI row — 5 cards */}
+          {/* KPI row: 5 cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {kpiCards.map(({ title, value, unit }, i) => (
               <KpiCard
@@ -298,10 +300,10 @@ export default function ForecastPage() {
             ))}
           </div>
 
-          {/* DA forecast chart — TradingView */}
+          {/* DA forecast chart: TradingView */}
           <ChartWrapper
-            title="DA Price Forecast"
-            subtitle="EUR/MWh — Actual (copper) vs Predicted (blue)"
+            title="DA price forecast"
+            subtitle="EUR/MWh: Actual (amber) vs Predicted (blue)"
             loading={forecastLoading}
             error={forecastError as Error | null}
             height={380}
@@ -327,7 +329,7 @@ export default function ForecastPage() {
           {/* Annual stats + BESS Revenue */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <ChartWrapper
-              title="Annual Statistics"
+              title="Annual statistics"
               subtitle="Avg DA price + Daily spread (EUR/MWh)"
               loading={statsLoading}
               error={statsError as Error | null}
@@ -346,8 +348,8 @@ export default function ForecastPage() {
             </ChartWrapper>
 
             <ChartWrapper
-              title="BESS Revenue"
-              subtitle="EUR/MW/year — by duration and market"
+              title="BESS revenue"
+              subtitle="EUR/MW/year: by duration and market"
               loading={statsLoading}
               error={statsError as Error | null}
               height={320}
@@ -369,7 +371,7 @@ export default function ForecastPage() {
 
           {/* Summary note */}
           <p className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'Outfit, sans-serif' }}>
-            Scenario: <span style={{ color: 'var(--accent-copper)' }}>{scenario}</span>.
+            Scenario: <span style={{ color: 'var(--accent-primary)' }}>{scenario}</span>.
             Target years shown: {TARGET_YEARS.join(', ')}.
             BESS revenue = daily top-N discharge hours minus bottom-N charge hours × 365.
           </p>

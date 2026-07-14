@@ -40,7 +40,7 @@ export default function DateRangePicker({ className = '' }: DateRangePickerProps
               }}
               className="px-3 py-1.5 text-xs font-medium transition-all duration-200"
               style={{
-                backgroundColor: active ? 'var(--accent-copper)' : 'var(--bg-elevated)',
+                backgroundColor: active ? 'var(--accent-primary)' : 'var(--bg-elevated)',
                 color: active ? 'var(--bg-primary)' : 'var(--text-secondary)',
                 fontFamily: 'JetBrains Mono, monospace',
               }}
@@ -63,7 +63,7 @@ export default function DateRangePicker({ className = '' }: DateRangePickerProps
           onChange={(e) => {
             const start = e.target.value
             if (!start) return
-            // Native `max` can be bypassed by typing — clamp an inverted range.
+            // Native `max` can be bypassed by typing - clamp an inverted range.
             setDateRange(start, start > dateRange.end ? start : dateRange.end)
           }}
           className="px-2 py-1.5 text-xs rounded-lg border transition-colors"

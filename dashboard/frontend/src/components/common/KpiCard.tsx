@@ -1,5 +1,6 @@
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import StalenessBadge from './StalenessBadge'
+import { fmtPct } from '../../lib/format'
 
 interface KpiCardProps {
   title: string
@@ -10,7 +11,7 @@ interface KpiCardProps {
   className?: string
   staggerIndex?: number
   /** Latest data timestamp (ISO date or full ISO datetime). Renders an
-   * inline staleness badge — see StalenessBadge for thresholds. */
+   * inline staleness badge - see StalenessBadge for thresholds. */
   asOf?: string | null
 }
 
@@ -58,9 +59,9 @@ export default function KpiCard({
       onMouseEnter={(e) => {
         const el = e.currentTarget as HTMLDivElement
         el.style.backgroundColor = 'var(--bg-elevated)'
-        el.style.borderColor = 'var(--border-bright)'
+        el.style.borderColor = 'color-mix(in srgb, var(--accent-primary) 45%, var(--border-default))'
         el.style.transform = 'translateY(-1px)'
-        el.style.boxShadow = '0 4px 20px rgba(0,0,0,0.15)'
+        el.style.boxShadow = 'var(--shadow-card)'
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget as HTMLDivElement
@@ -102,39 +103,22 @@ export default function KpiCard({
 
       {change != null && (
         <div className="flex items-center gap-1 mt-2">
-          {changePositive && (
-            <>
-              <TrendingUp size={12} style={{ color: 'var(--accent-green)' }} />
-              <span
-                className="text-xs font-medium font-data"
-                style={{ color: 'var(--accent-green)', fontFamily: 'JetBrains Mono, monospace' }}
-              >
-                +{Math.abs(change).toFixed(2)}%
-              </span>
-            </>
-          )}
-          {changeNegative && (
-            <>
-              <TrendingDown size={12} style={{ color: 'var(--accent-red)' }} />
-              <span
-                className="text-xs font-medium font-data"
-                style={{ color: 'var(--accent-red)', fontFamily: 'JetBrains Mono, monospace' }}
-              >
-                -{Math.abs(change).toFixed(2)}%
-              </span>
-            </>
-          )}
-          {changeNeutral && (
-            <>
-              <Minus size={12} style={{ color: 'var(--text-muted)' }} />
-              <span
-                className="text-xs font-medium"
-                style={{ color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}
-              >
-                0.00%
-              </span>
-            </>
-          )}
+          {changePositive && <TrendingUp size={12} style={{ color: 'var(--accent-green)' }} />}
+          {changeNegative && <TrendingDown size={12} style={{ color: 'var(--accent-red)' }} />}
+          {changeNeutral && <Minus size={12} style={{ color: 'var(--text-muted)' }} />}
+          <span
+            className="text-xs font-medium font-data"
+            style={{
+              color: changePositive
+                ? 'var(--accent-green)'
+                : changeNegative
+                  ? 'var(--accent-red)'
+                  : 'var(--text-muted)',
+              fontFamily: 'JetBrains Mono, monospace',
+            }}
+          >
+            {fmtPct(change)}
+          </span>
           <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
             vs prev
           </span>

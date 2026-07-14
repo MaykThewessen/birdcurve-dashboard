@@ -12,7 +12,7 @@ A six-page web app for exploring the Dutch power market and the [BirdCurve NL](h
 
 - **Native DuckDB query engine** — wide-format columnar reads in milliseconds, no ORM, no Python pivot loops
 - **Async FastAPI handlers** with threadpool offload for blocking file I/O, and HTTP `Cache-Control` for immutable historical ranges
-- **React 19 + TanStack Query + Vite 7** frontend; ECharts for analytics, TradingView lightweight-charts for time series
+- **React 19 + TanStack Query + Vite 7** frontend; ECharts for analytics, TradingView lightweight-charts for time series (time-series charting is powered by [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/); the on-canvas attribution logo is disabled, so this notice serves as attribution)
 - **Server-side LTTB downsampling** caps every chart payload to a few thousand points without losing extremes
 - **31 integration tests** against a live DuckDB; bring-your-own-data design (no proprietary market data committed)
 

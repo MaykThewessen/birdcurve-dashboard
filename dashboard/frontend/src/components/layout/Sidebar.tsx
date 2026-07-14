@@ -11,15 +11,15 @@ import {
   Moon,
   Monitor,
   ChevronRight,
-  Bird,
 } from 'lucide-react'
 import { useFilterStore } from '../../store/filterStore'
 import DataFreshnessPill from '../common/DataFreshnessPill'
+import BirdviewMark from './BirdviewMark'
 
 const NAV_ITEMS = [
   { icon: TrendingUp, label: 'Commodities', path: '/commodities' },
   { icon: Zap, label: 'Electricity', path: '/electricity' },
-  { icon: Brain, label: 'ML Performance', path: '/ml' },
+  { icon: Brain, label: 'ML performance', path: '/ml' },
   { icon: Settings2, label: 'Assumptions', path: '/scenarios' },
   { icon: LineChart, label: 'Forecast', path: '/forecast' },
   { icon: Shield, label: 'Ancillary', path: '/ancillary' },
@@ -53,9 +53,9 @@ export default function Sidebar() {
       >
         <div
           className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg"
-          style={{ backgroundColor: 'var(--accent-copper)', color: 'var(--bg-primary)' }}
+          style={{ backgroundColor: 'var(--accent-primary)', color: '#ffffff' }}
         >
-          <Bird size={18} strokeWidth={2.5} />
+          <BirdviewMark size={17} />
         </div>
         {expanded && (
           <div className="overflow-hidden">
@@ -67,7 +67,7 @@ export default function Sidebar() {
             </div>
             <div
               className="text-xs mt-0.5"
-              style={{ color: 'var(--accent-copper)', fontFamily: 'JetBrains Mono, monospace' }}
+              style={{ color: 'var(--accent-primary)', fontFamily: 'JetBrains Mono, monospace' }}
             >
               NL
             </div>
@@ -80,7 +80,7 @@ export default function Sidebar() {
         onClick={() => setExpanded(!expanded)}
         className="flex items-center justify-center w-full py-2 transition-colors"
         style={{ color: 'var(--text-muted)' }}
-        onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent-copper)')}
+        onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent-primary)')}
         onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)')}
         title={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
       >
@@ -115,13 +115,13 @@ export default function Sidebar() {
                 {isActive && (
                   <span
                     className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full"
-                    style={{ backgroundColor: 'var(--accent-copper)' }}
+                    style={{ backgroundColor: 'var(--accent-primary)' }}
                   />
                 )}
                 <Icon
                   size={18}
                   strokeWidth={isActive ? 2.5 : 2}
-                  style={{ color: isActive ? 'var(--accent-copper)' : undefined }}
+                  style={{ color: isActive ? 'var(--accent-primary)' : undefined }}
                   className="shrink-0"
                 />
                 {expanded && (
@@ -138,7 +138,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Data freshness — surfaces ingestion lag from /api/data-status. */}
+      {/* Data freshness - surfaces ingestion lag from /api/data-status. */}
       <div
         className="px-2 py-2 border-t"
         style={{ borderColor: 'var(--border-default)' }}
@@ -165,7 +165,7 @@ export default function Sidebar() {
                 style={{
                   backgroundColor:
                     theme === value ? 'var(--bg-hover)' : 'transparent',
-                  color: theme === value ? 'var(--accent-copper)' : 'var(--text-muted)',
+                  color: theme === value ? 'var(--accent-primary)' : 'var(--text-muted)',
                 }}
               >
                 <Icon size={14} />
