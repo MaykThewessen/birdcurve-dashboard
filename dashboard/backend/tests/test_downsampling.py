@@ -1,5 +1,31 @@
 import pytest
-from app.downsampling import lttb_downsample
+from app.downsampling import lttb_by_index, lttb_downsample
+
+
+@pytest.mark.parametrize("max_points", [2, 10, 100])
+def test_index_sampling_does_not_mutate_rows(max_points: int) -> None:
+    data = [{"_idx": "original", "v": float(i)} for i in range(50)]
+    original = [row.copy() for row in data]
+    result = lttb_by_index(data, "v", max_points)
+    assert data == original
+    assert all(any(row is source for source in data) for row in result)
+
+
+def test_missing_buckets_preserve_endpoints() -> None:
+    data = [{"t": i, "v": None} for i in range(50)]
+    assert lttb_by_index(data, "v", 10) == [data[0], data[-1]]
+
+
+@pytest.mark.parametrize("size,limit", [(3, 3), (4, 3), (501, 500), (1000, 33)])
+def test_bucket_boundaries(size: int, limit: int) -> None:
+    data = [{"v": float(i % 7)} for i in range(size)]
+    result = lttb_by_index(data, "v", limit)
+    assert len(result) == limit
+    assert result[0] is data[0]
+    assert result[-1] is data[-1]
+    positions = {id(row): i for i, row in enumerate(data)}
+    indices = [positions[id(row)] for row in result]
+    assert indices == sorted(set(indices))
 
 
 class TestLTTB:

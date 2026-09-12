@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from pathlib import Path
 
+import numpy as np
 import openpyxl
 import pandas as pd
 from fastapi import APIRouter, Query, Request, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 
-from ..downsampling import lttb_by_index
+from ..downsampling import lttb_by_index, lttb_indices
 from ._helpers import (
     add_cache_headers,
     auto_resolution,
@@ -48,7 +50,9 @@ def _read_da_forecast_csv(csv_path: str, mtime: float) -> pd.DataFrame:
     return df
 
 
-def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int, resolution: str):
+def _get_da_forecast_sync(
+    fdir: Path, start: str, end: str, max_points: int, resolution: str,
+) -> dict[str, list]:
     csv_paths = list(fdir.glob("predictions_DA_hourly_*.csv"))
     if not csv_paths:
         raise HTTPException(404, "predictions_DA_hourly CSV not found")
@@ -74,28 +78,20 @@ def _get_da_forecast_sync(fdir, start: str, end: str, max_points: int, resolutio
               .reset_index()
         )
 
-    data = [
-        {
-            "datetime": iso_utc(r.datetime_UTC),
-            "price_actual": None if pd.isna(r.Price_actual) else float(r.Price_actual),
-            "price_predicted": None if pd.isna(r.Price_pred_ensemble) else float(r.Price_pred_ensemble),
-        }
-        for r in df.itertuples(index=False)
-    ]
+    if len(df) > max_points:
+        y = df["Price_pred_ensemble"].fillna(df["Price_actual"]).fillna(0)
+        indices = lttb_indices(
+            np.arange(len(df), dtype=np.float64), y.to_numpy(dtype=np.float64), max_points,
+        )
+        df = df.iloc[indices]
 
-    if len(data) > max_points:
-        # LTTB needs a numeric y-axis; fall back to price_actual if predicted is None.
-        for d in data:
-            d["_y"] = d["price_predicted"] if d["price_predicted"] is not None else (d["price_actual"] or 0.0)
-        data = lttb_by_index(data, "_y", max_points)
-        for d in data:
-            d.pop("_y", None)
-
-    return {
-        "datetime": [d["datetime"] for d in data],
-        "price_actual": [d["price_actual"] for d in data],
-        "price_predicted": [d["price_predicted"] for d in data],
-    }
+    result = df.rename(columns={
+        "datetime_UTC": "datetime",
+        "Price_actual": "price_actual",
+        "Price_pred_ensemble": "price_predicted",
+    }).copy()
+    result["datetime"] = result["datetime"].astype(str).str.replace(" ", "T", n=1)
+    return result.astype(object).where(pd.notna(result), None).to_dict(orient="list")
 
 
 @router.get("/da")

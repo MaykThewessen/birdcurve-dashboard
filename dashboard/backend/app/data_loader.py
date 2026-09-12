@@ -84,8 +84,8 @@ class DataEngine:
         self._load_small_files()
 
         # Register optional out-of-DB sidecars (e.g. EUR/USD daily CSV).
-        self._eur_usd_registered = self._try_register_eur_usd(settings)
-        self._coal_api2_registered = self._try_register_coal_api2(settings)
+        self._eur_usd_registered = self._register_sidecar(settings.eur_usd_path, "eur_usd", "USD_per_EUR")
+        self._coal_api2_registered = self._register_sidecar(settings.coal_api2_path, "coal_api2", "price_USD_ton")
 
     _TS_PATTERN = re.compile(r"(\d{8}_\d{6})")
 
@@ -160,62 +160,31 @@ class DataEngine:
         if fl_path.exists():
             self._small_files_cache["feature_list"] = fl_path.read_text().strip().split("\n")
 
-    def _try_register_eur_usd(self, settings: Settings) -> bool:
-        """Resolve the eur_usd_path glob and register the CSV as the table
-        'sidecars.eur_usd' (columns: date DATE, USD_per_EUR DOUBLE).
-        Returns True if a file was found and registered, False otherwise.
-        """
+    def _register_sidecar(self, pattern: Path, table: str, value_column: str) -> bool:
+        """Register the newest CSV. Table and column names are internal constants."""
         from glob import glob
-        raw = glob(str(settings.eur_usd_path))
+        raw = glob(str(pattern))
         if not raw:
             return False
-        # Sort by mtime so the newest file on disk wins regardless of filename.
-        csvs = sorted((Path(p) for p in raw), key=lambda p: p.stat().st_mtime)
-        csv = str(csvs[-1])
+        # Select by mtime so the newest file wins regardless of filename.
+        csv = str(max(map(Path, raw), key=lambda p: p.stat().st_mtime))
         try:
             self._conn.execute(
                 f"""
-                CREATE TABLE sidecars.eur_usd AS
+                CREATE TABLE sidecars."{table}" AS
                 SELECT CAST(datetime_UTC AS DATE) AS date,
-                       CAST(USD_per_EUR AS DOUBLE) AS USD_per_EUR
-                FROM read_csv_auto('{csv}')
-                """
+                       CAST("{value_column}" AS DOUBLE) AS "{value_column}"
+                FROM read_csv_auto(?)
+                """, [csv],
             )
             return True
         except Exception:
-            logger.warning("Failed to register EUR/USD sidecar from %s", csv, exc_info=True)
+            logger.warning("Failed to register %s sidecar from %s", table, csv, exc_info=True)
             return False
 
     @property
     def has_eur_usd(self) -> bool:
         return self._eur_usd_registered
-
-    def _try_register_coal_api2(self, settings: Settings) -> bool:
-        """Register the Coal API2 daily CSV as the table 'sidecars.coal_api2'.
-
-        The CSV has columns (datetime_UTC, price_USD_ton, ...); we only
-        project what the dashboard needs. Returns True on success.
-        """
-        from glob import glob
-        raw = glob(str(settings.coal_api2_path))
-        if not raw:
-            return False
-        # Sort by mtime so the newest file on disk wins regardless of filename.
-        csvs = sorted((Path(p) for p in raw), key=lambda p: p.stat().st_mtime)
-        csv = str(csvs[-1])
-        try:
-            self._conn.execute(
-                f"""
-                CREATE TABLE sidecars.coal_api2 AS
-                SELECT CAST(datetime_UTC AS DATE) AS date,
-                       CAST(price_USD_ton AS DOUBLE) AS price_USD_ton
-                FROM read_csv_auto('{csv}')
-                """
-            )
-            return True
-        except Exception:
-            logger.warning("Failed to register Coal API2 sidecar from %s", csv, exc_info=True)
-            return False
 
     @property
     def has_coal_api2(self) -> bool:
